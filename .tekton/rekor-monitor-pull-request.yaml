@@ -39,7 +39,7 @@ spec:
   - name: go_unit_test
     value: true
   - name: go_base_image
-    value: golang:1.24.2@sha256:d9db32125db0c3a680cfb7a1afcaefb89c898a075ec148fdc2f0f646cc2ed509
+    value: brew.registry.redhat.io/rh-osbs/openshift-golang-builder:v1.23.4@sha256:5c6607f82aeb2cd3f71075d17555d4170b17927e8551967d2fd0e534b22b1c7b
   taskRunSpecs:
     - pipelineTaskName: prefetch-dependencies
       stepSpecs:
