@@ -5,6 +5,7 @@ WORKDIR /app
 
 COPY . .
 
+RUN go mod vendor
 RUN go build -o rekor_monitor ./cmd/rekor_monitor
 
 # Final stage
