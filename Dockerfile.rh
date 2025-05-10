@@ -20,9 +20,9 @@ COPY monitor-wrapper.py /app/monitor-wrapper.py
 
 # Install Python dependencies
 RUN dnf install -y python3-pip
-# RUN pip install --no-cache-dir \
-#     opentelemetry-sdk \
-#     opentelemetry-exporter-otlp
+RUN pip install --no-cache-dir \
+    opentelemetry-sdk \
+    opentelemetry-exporter-otlp
 
 LABEL description="rekor_monitor is a monitoring tool for the Rekor transparency log."
 LABEL io.k8s.description="Python wrapper for rekor_monitor CLI to export Rekor transparency log metrics"
