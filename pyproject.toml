@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rekor-monitor"
+version = "0.1.0"
+description = "A monitor for Rekor logs using OpenTelemetry"
+
+dependencies = [
+    "opentelemetry-api>=1.0.0",
+    "opentelemetry-sdk>=1.0.0",
+    "opentelemetry-exporter-otlp>=1.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
