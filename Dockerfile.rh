@@ -30,7 +30,7 @@ LABEL name="rekor-monitor"
 
 COPY LICENSE /licenses/LICENSE
 
-USER 65532:65532
+USER 1001:1001
 
 #ENTRYPOINT
 ENTRYPOINT ["python", "monitor-wrapper.py"]
