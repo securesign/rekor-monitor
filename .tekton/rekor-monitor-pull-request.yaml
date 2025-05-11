@@ -35,8 +35,10 @@ spec:
     value: "true"
   - name: hermetic
     value: "true"
+  - name: dev-package-managers 
+    value: "true"
   - name: prefetch-input
-    value: [{"path": ".", "type": "gomod"}]
+    value: [{"type": "rpm", "path": "."}, {"path": ".", "type": "gomod"}, {"type": "pip", "path": ".", "requirements_files": ["requirements.txt", "requirements-build.txt"]}]
   - name: go_unit_test
     value: true
   - name: go_base_image

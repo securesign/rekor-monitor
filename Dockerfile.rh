@@ -9,15 +9,22 @@ RUN go mod vendor
 RUN go build -o rekor_monitor ./cmd/rekor_monitor
 
 # Final stage
-FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:ac61c96b93894b9169221e87718733354dd3765dd4a62b275893c7ff0d876869
+FROM registry.access.redhat.com/ubi9/python-312@sha256:945feded9d5b9fa7f1061c98f40fdb2f2b57432f800d21eaeadf85feb61d90ad
 
-COPY --from=builder /app/rekor_monitor /rekor_monitor
+WORKDIR /app
+
+COPY --from=builder /app/rekor_monitor /app/rekor_monitor
+COPY . .
+
+# Install Python dependencies
+RUN pip install -U pip && pip install -r /app/requirements.txt --force-reinstall
+
 
 LABEL description="rekor_monitor is a monitoring tool for the Rekor transparency log."
-LABEL io.k8s.description="rekor_monitor is a monitoring tool for the Rekor transparency log."
-LABEL io.k8s.display-name="rekor-monitor container image for Red Hat Trusted Signer"
+LABEL io.k8s.description="Python wrapper for rekor_monitor CLI to export Rekor transparency log metrics"
+LABEL io.k8s.display-name="rekor-monitor Python-based metrics exporter"
 LABEL io.openshift.tags="rekor-monitor trusted-signer"
-LABEL summary="Provides the rekor_monitor binary for monitoring a Rekor server"
+LABEL summary="Python wrapper for rekor_monitor binary to export Rekor transparency log metrics"
 LABEL com.redhat.component="rekor-monitor"
 LABEL name="rekor-monitor"
 
@@ -26,4 +33,4 @@ COPY LICENSE /licenses/LICENSE
 USER 65532:65532
 
 #ENTRYPOINT
-ENTRYPOINT ["/rekor_monitor"]
+ENTRYPOINT ["python", "monitor-wrapper.py"]
