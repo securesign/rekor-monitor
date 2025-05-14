@@ -43,9 +43,19 @@ def run_rekor_monitor():
             capture_output=True,
             text=True
         )
-        if result.returncode == 0 and "consistency verified" in result.stderr.lower():
+        stderr_lower = result.stderr.lower()
+
+        # Case 1: Consistency verified successfully
+        if result.returncode == 0 and "consistency verified" in stderr_lower:
             rekor_check_total.labels(status="success").inc()
             logger.info("Rekor consistency check: SUCCESS")
+
+        # Case 2: Special condition — log is empty and cannot verify consistency
+        # This is not considered a failure, but should be logged for visibility
+        elif result.returncode == 0 and "consistency proofs can not be computed starting from an empty log" in stderr_lower:
+            logger.info("Rekor consistency check skipped: log is empty (not an error)")
+
+        # Case 3: All other outcomes are treated as failures
         else:
             rekor_check_total.labels(status="failure").inc()
             logger.error("Rekor consistency check: FAILURE")
