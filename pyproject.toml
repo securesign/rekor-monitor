@@ -1,16 +1,11 @@
 [project]
 name = "rekor-monitor"
 version = "1.0"
-description = "A monitor for Rekor logs using OpenTelemetry"
+description = "A monitor for Rekor logs using Prometheus"
 requires-python = ">=3.11"
 
 dependencies = [
-    'opentelemetry-api==1.33.0',
-    'opentelemetry-sdk==1.33.0',
-    'opentelemetry-exporter-otlp==1.33.0',
-    'calver==2025.4.2',
-    'types-psutil==7.0.0.20250401',
-    'types-setuptools==76.0.0.20250313'
+    'prometheus_client>=0.19.0'
 ]
 
 [tool.setuptools.packages.find]

@@ -1,4 +1,0 @@
-packages: [python3-pip]
-contentOrigin:
-  repofiles: ["./ubi.repo"]
-arches: [x86_64]
