@@ -55,7 +55,11 @@ def run_rekor_monitor():
         elif result.returncode == 0 and "consistency proofs can not be computed starting from an empty log" in stderr_lower:
             logger.info("Rekor consistency check skipped: log is empty (not an error)")
 
-        # Case 3: All other outcomes are treated as failures
+        # Case 3: First-run, no checkpoint yet — not a failure
+        elif "no start index set and no log checkpoint" in stderr_lower:
+            logger.info("Rekor consistency check skipped: no checkpoint found (first run)")
+
+        # Case 4: All other outcomes are treated as failures
         else:
             rekor_check_total.labels(status="failure").inc()
             logger.error("Rekor consistency check: FAILURE")
