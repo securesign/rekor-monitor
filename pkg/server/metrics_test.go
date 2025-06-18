@@ -17,6 +17,7 @@ package server
 import (
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -28,16 +29,19 @@ import (
 
 // TestStartMetricsServer verifies that the metrics server starts and serves the /metrics endpoint.
 func TestStartMetricsServer(t *testing.T) {
-	// Use a unique port to avoid conflicts
-	port := 9465
+	// Dynamically allocate a free port by listening on port 0
+	l, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		t.Fatalf("failed to listen on a port: %v", err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	l.Close() // Close immediately so StartMetricsServer can use it
 	go func() {
 		if err := StartMetricsServer(port); err != nil {
 			t.Errorf("StartMetricsServer failed: %v", err)
 		}
 	}()
-
 	time.Sleep(100 * time.Millisecond)
-
 	resp, err := http.Get(fmt.Sprintf("http://localhost:%d/metrics", port))
 	if err != nil {
 		t.Fatalf("Failed to query /metrics: %v", err)
