@@ -24,8 +24,6 @@ spec:
     value: '{{revision}}'
   - name: output-image
     value: quay.io/securesign/rekor-monitor:{{revision}}
-  - name: image-expires-after
-    value: 5d
   - name: dockerfile
     value: Dockerfile.rh
   - name: path-context
