@@ -17,7 +17,7 @@ LABEL description="rekor_monitor is a monitoring tool for the Rekor transparency
 LABEL io.k8s.description="rekor_monitor is a monitoring tool for the Rekor transparency log."
 LABEL io.k8s.display-name="rekor-monitor container image for Red Hat Trusted Signer"
 LABEL io.openshift.tags="rekor-monitor trusted-signer"
-LABEL summary="Provides the rekor_monitor binary for monitoring a Rekor server"
+LABEL summary="Provides the rekor_monitor binary for continuously monitoring the transparency log state of a Rekor server, performing consistency checks."
 LABEL com.redhat.component="rekor-monitor"
 LABEL name="rekor-monitor"
 
