@@ -8,7 +8,7 @@ metadata:
     pipelinesascode.tekton.dev/cancel-in-progress: "false"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
     pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch == "main"  &&
-      ( "Dockerfile.rh".pathChanged() || ".tekton/rekor-monitor-push.yaml".pathChanged()|| "go.mod".pathChanged() || "go.sum".pathChanged() || "cmd/rekor_monitor".pathChanged() || "cmd/ct_monitor".pathChanged() || "pkg".pathChanged() || "Makefile".pathChanged() )
+      ( "Dockerfile.rh".pathChanged() || ".tekton/rekor-monitor-push.yaml".pathChanged()|| "go.mod".pathChanged() || "go.sum".pathChanged() || "cmd/rekor_monitor/***".pathChanged() || "cmd/ct_monitor/***".pathChanged() || "pkg/***".pathChanged() || "Makefile".pathChanged() )
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: rekor-monitor
