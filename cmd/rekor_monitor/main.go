@@ -191,6 +191,13 @@ func main() {
 			config.EndIndex = &checkpointEndIndex
 		}
 
+		if *config.StartIndex > *config.EndIndex {
+			handleError(fmt.Sprintf("start index %d must be less than or equal to end index %d", *config.StartIndex, *config.EndIndex), nil)
+			if !*once {
+				goto waitForTick
+			}
+		}
+
 		if identity.MonitoredValuesExist(monitoredValues) {
 			_, err = rekor.IdentitySearch(*config.StartIndex, *config.EndIndex, rekorClient, monitoredValues, config.OutputIdentitiesFile, config.IdentityMetadataFile)
 			if err != nil {
