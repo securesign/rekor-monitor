@@ -110,7 +110,9 @@ func RunConsistencyCheck(rekorClient *client.Rekor, verifier signature.Verifier,
 		if err != nil {
 			if strings.Contains(err.Error(), "consistency proofs can not be computed starting from an empty log") {
 				fmt.Fprintf(os.Stderr, "previous checkpoint was from an empty log; deleting and restarting\n")
-				_ = os.Remove(logInfoFile)
+				if removeErr := os.Remove(logInfoFile); removeErr != nil {
+					fmt.Fprintf(os.Stderr, "warning: failed to delete %s: %v\n", logInfoFile, removeErr)
+				}
 				return RunConsistencyCheck(rekorClient, verifier, logInfoFile)
 			}
 			return nil, nil, fmt.Errorf("failed to verify previous checkpoint: %v", err)
