@@ -1,4 +1,4 @@
-package e2e
+package integration
 
 import (
 	"context"
@@ -88,7 +88,6 @@ func setupTest(t *testing.T) (context.Context, string, string, string) {
 		t.Fatalf("failed to build binary: %v", err)
 	}
 
-	// Initialize checkpoint file
 	dataDir := t.TempDir()
 	checkpointFile := filepath.Join(dataDir, "checkpoint_log.txt")
 
@@ -110,7 +109,6 @@ func setupTest(t *testing.T) (context.Context, string, string, string) {
 		}
 	})
 
-	// Allocate port
 	listener, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
 		t.Fatalf("failed to find free port: %v", err)

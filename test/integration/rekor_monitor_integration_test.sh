@@ -61,21 +61,19 @@ function cleanup_services() {
 }
 trap cleanup_services EXIT
 
-# Install Rekor CLI if missing
+# Install Rekor CLI
 if ! command -v rekor-cli &>/dev/null; then
     echo "Installing Rekor CLI..."
     go install github.com/sigstore/rekor/cmd/rekor-cli@latest
     export PATH="$PATH:$(go env GOPATH)/bin"
 fi
 
-# Prepare artifact and keys
 echo "Preparing artifact and signing..."
 echo "hello rekor" > artifact.txt
 openssl genrsa -out private.key 2048
 openssl rsa -in private.key -pubout > public.key
 openssl dgst -sha256 -sign private.key -out artifact.sig artifact.txt
 
-# Upload entry to Rekor
 echo "Uploading test entry to Rekor..."
 rekor-cli upload \
   --artifact artifact.txt \
@@ -85,7 +83,6 @@ rekor-cli upload \
   --type rekord \
   --rekor_server http://localhost:3000
 
-# Verify entry exists
 sha=$(sha256sum artifact.txt | cut -d ' ' -f1)
 rekor-cli search --sha "$sha" --rekor_server http://localhost:3000
 
