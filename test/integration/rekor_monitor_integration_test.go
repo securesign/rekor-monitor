@@ -21,6 +21,8 @@ type MonitorExpectations struct {
 	ExpectedTotalCount   int
 }
 
+const RekorServer = "http://localhost:3000"
+
 func TestMonitorWithValidCheckpoint(t *testing.T) {
 	ctx, binary, checkpointFile, monitorPort := setupTest(t)
 
@@ -95,7 +97,7 @@ func setupTest(t *testing.T) (context.Context, string, string, string) {
 		initCmd := exec.CommandContext(ctx, binary,
 			"--once",
 			"--file", checkpointFile,
-			"--url", "http://localhost:3000",
+			"--url", RekorServer,
 		)
 		initCmd.Stdout = os.Stdout
 		initCmd.Stderr = os.Stderr
@@ -128,7 +130,7 @@ func runMonitorAndValidate(t *testing.T, ctx context.Context, binary, checkpoint
 			"--once=false",
 			"--interval=2s",
 			"--file", checkpointFile,
-			"--url", "http://localhost:3000",
+			"--url", RekorServer,
 			"--monitor-port", monitorPort,
 		)
 
