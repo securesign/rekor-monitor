@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,13 +22,12 @@ type MonitorExpectations struct {
 	ExpectedTotalCount   int
 }
 
-const RekorServer = "http://localhost:3000"
-
 func TestMonitorWithValidCheckpoint(t *testing.T) {
-	ctx, binary, checkpointFile, monitorPort := setupTest(t)
+	ctx, binary, checkpointFile, monitorPort, mockServer := setupTest(t)
+	defer mockServer.Close()
 
 	t.Run("start_monitor_and_check_initial_metrics", func(t *testing.T) {
-		runMonitorAndValidate(t, ctx, binary, checkpointFile, monitorPort, MonitorExpectations{
+		runMonitorAndValidate(t, ctx, binary, checkpointFile, monitorPort, mockServer, MonitorExpectations{
 			ExpectErrorLog:       false,
 			ExpectedFailureCount: 0,
 			ExpectedTotalCount:   1,
@@ -36,7 +36,8 @@ func TestMonitorWithValidCheckpoint(t *testing.T) {
 }
 
 func TestTamperedCheckpoint(t *testing.T) {
-	ctx, binary, checkpointFile, monitorPort := setupTest(t)
+	ctx, binary, checkpointFile, monitorPort, mockServer := setupTest(t)
+	defer mockServer.Close()
 
 	t.Run("validate_and_tamper_checkpoint_file", func(t *testing.T) {
 		content, err := os.ReadFile(checkpointFile)
@@ -66,7 +67,7 @@ func TestTamperedCheckpoint(t *testing.T) {
 		}
 	})
 
-	runMonitorAndValidate(t, ctx, binary, checkpointFile, monitorPort, MonitorExpectations{
+	runMonitorAndValidate(t, ctx, binary, checkpointFile, monitorPort, mockServer, MonitorExpectations{
 		ExpectErrorLog:       true,
 		ExpectedFailureCount: 1,
 		ExpectedTotalCount:   1,
@@ -75,8 +76,10 @@ func TestTamperedCheckpoint(t *testing.T) {
 
 // setupTest prepares the test environment: builds the binary, initializes the checkpoint file,
 // and allocates a port. Returns the context, binary path, checkpoint file path, and monitor port.
-func setupTest(t *testing.T) (context.Context, string, string, string) {
+func setupTest(t *testing.T) (context.Context, string, string, string, *httptest.Server) {
 	t.Helper()
+
+	mockServer := StartMockRekorServer()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
@@ -97,7 +100,7 @@ func setupTest(t *testing.T) (context.Context, string, string, string) {
 		initCmd := exec.CommandContext(ctx, binary,
 			"--once",
 			"--file", checkpointFile,
-			"--url", RekorServer,
+			"--url", mockServer.URL,
 		)
 		initCmd.Stdout = os.Stdout
 		initCmd.Stderr = os.Stderr
@@ -118,11 +121,11 @@ func setupTest(t *testing.T) (context.Context, string, string, string) {
 	monitorPort := fmt.Sprintf("%d", listener.Addr().(*net.TCPAddr).Port)
 	listener.Close()
 
-	return ctx, binary, checkpointFile, monitorPort
+	return ctx, binary, checkpointFile, monitorPort, mockServer
 }
 
 // runMonitorAndValidate runs the monitor, captures logs, fetches metrics, and validates expected errors and metrics.
-func runMonitorAndValidate(t *testing.T, ctx context.Context, binary, checkpointFile, monitorPort string, exp MonitorExpectations) {
+func runMonitorAndValidate(t *testing.T, ctx context.Context, binary, checkpointFile, monitorPort string, server *httptest.Server, exp MonitorExpectations) {
 	t.Helper()
 
 	t.Run("start_monitor", func(t *testing.T) {
@@ -130,7 +133,7 @@ func runMonitorAndValidate(t *testing.T, ctx context.Context, binary, checkpoint
 			"--once=false",
 			"--interval=2s",
 			"--file", checkpointFile,
-			"--url", RekorServer,
+			"--url", server.URL,
 			"--monitor-port", monitorPort,
 		)
 
@@ -215,4 +218,29 @@ func runMonitorAndValidate(t *testing.T, ctx context.Context, binary, checkpoint
 			}
 		})
 	})
+}
+
+// StartMockRekorServer returns an httptest.Server that mimics Rekor endpoints.
+func StartMockRekorServer() *httptest.Server {
+	handler := http.NewServeMux()
+
+	handler.HandleFunc("/api/v1/log/publicKey", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-pem-file")
+		fmt.Fprint(w, `-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE2G2Y+2tabdTV5BcGiBIx0a9fAFwr
+kBbmLSGtks4L3qX6yYY0zufBnhC8Ur/iy55GhWP/9A/bY2LhC30M9+RYtw==
+-----END PUBLIC KEY-----`)
+	})
+
+	handler.HandleFunc("/api/v1/log", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{
+  "rootHash": "dd984b288de629496979d43d86220c6c92232abdef4dcfae7958b2c56ab04060",
+  "signedTreeHead": "rekor.sigstore.dev - 1193050959916656506\n266676745\n3ZhLKI3mKUlpedQ9hiIMbJIjKr3vTc+ueViyxWqwQGA=\n\n— rekor.sigstore.dev wNI9ajBEAiAE7ER4yd8Waq4ZzLQt9BIUyfAvbizhv5PCcxk5Glf28AIgWT6LH4VlkrI8VhZnqCPigxEVzdlwVQpuRo0OsISdPGs=\n",
+  "treeID": "1193050959916656506",
+  "treeSize": 266676745
+}`)
+	})
+
+	return httptest.NewServer(handler)
 }
