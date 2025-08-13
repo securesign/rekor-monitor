@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -26,12 +27,53 @@ func TestMonitorWithValidCheckpoint(t *testing.T) {
 	ctx, binary, checkpointFile, monitorPort, mockServer := setupTest(t)
 	defer mockServer.Close()
 
-	t.Run("start_monitor_and_check_initial_metrics", func(t *testing.T) {
-		runMonitorAndValidate(t, ctx, binary, checkpointFile, monitorPort, mockServer, MonitorExpectations{
-			ExpectErrorLog:       false,
-			ExpectedFailureCount: 0,
-			ExpectedTotalCount:   1,
-		})
+	t.Run("start_monitor_and_check_metrics_increase_over_time", func(t *testing.T) {
+		runCmd := exec.CommandContext(ctx, binary,
+			"--once=false",
+			"--interval=2s",
+			"--file", checkpointFile,
+			"--url", mockServer.URL,
+			"--monitor-port", monitorPort,
+		)
+		if err := runCmd.Start(); err != nil {
+			t.Fatalf("failed to start monitor: %v", err)
+		}
+		defer runCmd.Process.Kill()
+
+		getTotalCount := func() int {
+			resp, err := http.Get(fmt.Sprintf("http://localhost:%s/metrics", monitorPort))
+			if err != nil {
+				t.Fatalf("failed to fetch metrics: %v", err)
+			}
+			defer resp.Body.Close()
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatalf("failed to read metrics body: %v", err)
+			}
+			for _, line := range strings.Split(string(body), "\n") {
+				if strings.HasPrefix(line, "log_index_verification_total") {
+					parts := strings.Fields(line)
+					if len(parts) == 2 {
+						val, _ := strconv.Atoi(parts[1])
+						return val
+					}
+				}
+			}
+			t.Fatalf("log_index_verification_total metric not found:\n%s", string(body))
+			return 0
+		}
+
+		// First measurement
+		time.Sleep(1 * time.Second)
+		firstCount := getTotalCount()
+
+		// Second measurement after a few intervals
+		time.Sleep(5 * time.Second)
+		secondCount := getTotalCount()
+
+		if secondCount <= firstCount {
+			t.Errorf("expected total count to increase, got first=%d second=%d", firstCount, secondCount)
+		}
 	})
 }
 
@@ -96,7 +138,7 @@ func setupTest(t *testing.T) (context.Context, string, string, string, *httptest
 	dataDir := t.TempDir()
 	checkpointFile := filepath.Join(dataDir, "checkpoint_log.txt")
 
-	t.Run("generate initial checkpoint file", func(t *testing.T) {
+	t.Run("generate_initial_checkpoint_file", func(t *testing.T) {
 		initCmd := exec.CommandContext(ctx, binary,
 			"--once",
 			"--file", checkpointFile,
