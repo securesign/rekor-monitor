@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -27,54 +26,25 @@ func TestMonitorWithValidCheckpoint(t *testing.T) {
 	ctx, binary, checkpointFile, monitorPort, mockServer := setupTest(t)
 	defer mockServer.Close()
 
-	t.Run("start_monitor_and_check_metrics_increase_over_time", func(t *testing.T) {
-		runCmd := exec.CommandContext(ctx, binary,
-			"--once=false",
-			"--interval=2s",
-			"--file", checkpointFile,
-			"--url", mockServer.URL,
-			"--monitor-port", monitorPort,
-		)
-		if err := runCmd.Start(); err != nil {
-			t.Fatalf("failed to start monitor: %v", err)
-		}
-		defer runCmd.Process.Kill()
+	runCmd, logs := startMonitor(t, ctx, binary, checkpointFile, monitorPort, mockServer)
 
-		getTotalCount := func() int {
-			resp, err := http.Get(fmt.Sprintf("http://localhost:%s/metrics", monitorPort))
-			if err != nil {
-				t.Fatalf("failed to fetch metrics: %v", err)
-			}
-			defer resp.Body.Close()
-			body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				t.Fatalf("failed to read metrics body: %v", err)
-			}
-			for _, line := range strings.Split(string(body), "\n") {
-				if strings.HasPrefix(line, "log_index_verification_total") {
-					parts := strings.Fields(line)
-					if len(parts) == 2 {
-						val, _ := strconv.Atoi(parts[1])
-						return val
-					}
-				}
-			}
-			t.Fatalf("log_index_verification_total metric not found:\n%s", string(body))
-			return 0
-		}
-
-		// First measurement
-		time.Sleep(1 * time.Second)
-		firstCount := getTotalCount()
-
-		// Second measurement after a few intervals
-		time.Sleep(5 * time.Second)
-		secondCount := getTotalCount()
-
-		if secondCount <= firstCount {
-			t.Errorf("expected total count to increase, got first=%d second=%d", firstCount, secondCount)
-		}
+	metrics := fetchMetrics(t, monitorPort)
+	validateLogsAndMetrics(t, logs, metrics, MonitorExpectations{
+		ExpectErrorLog:       false,
+		ExpectedFailureCount: 0,
+		ExpectedTotalCount:   1,
 	})
+
+	time.Sleep(1 * time.Second)
+
+	metrics = fetchMetrics(t, monitorPort)
+	validateLogsAndMetrics(t, logs, metrics, MonitorExpectations{
+		ExpectErrorLog:       false,
+		ExpectedFailureCount: 0,
+		ExpectedTotalCount:   2,
+	})
+
+	stopMonitor(t, runCmd)
 }
 
 func TestTamperedCheckpoint(t *testing.T) {
@@ -109,11 +79,16 @@ func TestTamperedCheckpoint(t *testing.T) {
 		}
 	})
 
-	runMonitorAndValidate(t, ctx, binary, checkpointFile, monitorPort, mockServer, MonitorExpectations{
+	runCmd, logs := startMonitor(t, ctx, binary, checkpointFile, monitorPort, mockServer)
+
+	metrics := fetchMetrics(t, monitorPort)
+	validateLogsAndMetrics(t, logs, metrics, MonitorExpectations{
 		ExpectErrorLog:       true,
 		ExpectedFailureCount: 1,
 		ExpectedTotalCount:   1,
 	})
+
+	stopMonitor(t, runCmd)
 }
 
 // setupTest prepares the test environment: builds the binary, initializes the checkpoint file,
@@ -166,12 +141,15 @@ func setupTest(t *testing.T) (context.Context, string, string, string, *httptest
 	return ctx, binary, checkpointFile, monitorPort, mockServer
 }
 
-// runMonitorAndValidate runs the monitor, captures logs, fetches metrics, and validates expected errors and metrics.
-func runMonitorAndValidate(t *testing.T, ctx context.Context, binary, checkpointFile, monitorPort string, server *httptest.Server, exp MonitorExpectations) {
+// Start the monitor and return the Cmd and logs builder
+func startMonitor(t *testing.T, ctx context.Context, binary, checkpointFile, monitorPort string, server *httptest.Server) (*exec.Cmd, *strings.Builder) {
 	t.Helper()
 
+	var runCmd *exec.Cmd
+	var logs *strings.Builder
+
 	t.Run("start_monitor", func(t *testing.T) {
-		runCmd := exec.CommandContext(ctx, binary,
+		runCmd = exec.CommandContext(ctx, binary,
 			"--once=false",
 			"--interval=2s",
 			"--file", checkpointFile,
@@ -187,78 +165,103 @@ func runMonitorAndValidate(t *testing.T, ctx context.Context, binary, checkpoint
 		if err != nil {
 			t.Fatalf("failed to get stderr pipe: %v", err)
 		}
+
 		if err := runCmd.Start(); err != nil {
 			t.Fatalf("failed to start monitor: %v", err)
 		}
-		defer runCmd.Process.Kill()
 
-		var logs strings.Builder
-		go io.Copy(&logs, stdoutPipe)
-		go io.Copy(&logs, stderrPipe)
+		logs = &strings.Builder{}
+		go io.Copy(logs, stdoutPipe)
+		go io.Copy(logs, stderrPipe)
 
+		// give monitor time to start
 		time.Sleep(1500 * time.Millisecond)
+	})
 
-		var metricsStr string
-		t.Run("fetch_metrics", func(t *testing.T) {
-			for i := 0; i < 5; i++ {
-				resp, err := http.Get(fmt.Sprintf("http://localhost:%s/metrics", monitorPort))
+	return runCmd, logs
+}
+
+// Fetch metrics from the monitor with retry
+func fetchMetrics(t *testing.T, monitorPort string) string {
+	t.Helper()
+
+	var metricsStr string
+
+	t.Run("fetch_metrics", func(t *testing.T) {
+		for i := 0; i < 5; i++ {
+			resp, err := http.Get(fmt.Sprintf("http://localhost:%s/metrics", monitorPort))
+			if err == nil {
+				body, err := io.ReadAll(resp.Body)
+				resp.Body.Close()
 				if err == nil {
-					body, err := io.ReadAll(resp.Body)
-					resp.Body.Close()
-					if err == nil {
-						metricsStr = string(body)
-						break
-					}
-					t.Logf("failed to read metrics body: %v", err)
+					metricsStr = string(body)
+					break
 				}
-				time.Sleep(500 * time.Millisecond)
-			}
-			if metricsStr == "" {
-				t.Fatalf("failed to query metrics after retries")
-			}
-		})
-
-		t.Run("validate_logs_and_metrics", func(t *testing.T) {
-			if exp.ExpectErrorLog {
-				if !strings.Contains(logs.String(), "error running consistency check") {
-					t.Errorf("expected error log not found:\n%s", logs.String())
-				}
+				t.Logf("failed to read metrics body: %v", err)
 			} else {
-				if strings.Contains(logs.String(), "error") {
-					t.Errorf("unexpected error found in logs:\n%s", logs.String())
-				}
+				t.Logf("failed to fetch metrics: %v", err)
 			}
+			time.Sleep(500 * time.Millisecond)
+		}
 
-			failMetric := fmt.Sprintf("log_index_verification_failure %d", exp.ExpectedFailureCount)
-			if !strings.Contains(metricsStr, failMetric) {
-				t.Errorf("expected failure metric '%s' not found:\n%s", failMetric, metricsStr)
-			}
+		if metricsStr == "" {
+			t.Fatalf("failed to query metrics after retries")
+		}
+	})
 
-			totalMetric := fmt.Sprintf("log_index_verification_total %d", exp.ExpectedTotalCount)
-			if !strings.Contains(metricsStr, totalMetric) {
-				t.Errorf("expected total metric '%s' not found:\n%s", totalMetric, metricsStr)
-			}
-		})
+	return metricsStr
+}
 
-		t.Run("stop_monitor", func(t *testing.T) {
-			if err := runCmd.Process.Signal(syscall.SIGTERM); err != nil {
-				t.Fatalf("failed to send SIGTERM to monitor: %v", err)
+// Validate logs and metrics against expectations
+func validateLogsAndMetrics(t *testing.T, logs *strings.Builder, metricsStr string, exp MonitorExpectations) {
+	t.Helper()
+
+	t.Run("validate_logs_and_metrics", func(t *testing.T) {
+		if exp.ExpectErrorLog {
+			if !strings.Contains(logs.String(), "error running consistency check") {
+				t.Errorf("expected error log not found:\n%s", logs.String())
 			}
-			select {
-			case <-time.After(5 * time.Second):
-				t.Fatalf("monitor did not exit within 5 seconds after SIGTERM")
-			case err := <-func() chan error {
-				errChan := make(chan error)
-				go func() {
-					errChan <- runCmd.Wait()
-				}()
-				return errChan
-			}():
-				if err != nil && !strings.Contains(err.Error(), "signal: terminated") {
-					t.Fatalf("monitor did not exit cleanly: %v", err)
-				}
+		} else {
+			if strings.Contains(logs.String(), "error") {
+				t.Errorf("unexpected error found in logs:\n%s", logs.String())
 			}
-		})
+		}
+
+		failMetric := fmt.Sprintf("log_index_verification_failure %d", exp.ExpectedFailureCount)
+		if !strings.Contains(metricsStr, failMetric) {
+			t.Errorf("expected failure metric '%s' not found:\n%s", failMetric, metricsStr)
+		}
+
+		totalMetric := fmt.Sprintf("log_index_verification_total %d", exp.ExpectedTotalCount)
+		if !strings.Contains(metricsStr, totalMetric) {
+			t.Errorf("expected total metric '%s' not found:\n%s", totalMetric, metricsStr)
+		}
+	})
+}
+
+// Stop the monitor
+func stopMonitor(t *testing.T, runCmd *exec.Cmd) {
+	t.Helper()
+
+	t.Run("stop_monitor", func(t *testing.T) {
+		if err := runCmd.Process.Signal(syscall.SIGTERM); err != nil {
+			t.Fatalf("failed to send SIGTERM to monitor: %v", err)
+		}
+
+		select {
+		case <-time.After(5 * time.Second):
+			t.Fatalf("monitor did not exit within 5 seconds after SIGTERM")
+		case err := <-func() chan error {
+			errChan := make(chan error)
+			go func() {
+				errChan <- runCmd.Wait()
+			}()
+			return errChan
+		}():
+			if err != nil && !strings.Contains(err.Error(), "signal: terminated") {
+				t.Fatalf("monitor did not exit cleanly: %v", err)
+			}
+		}
 	})
 }
 
