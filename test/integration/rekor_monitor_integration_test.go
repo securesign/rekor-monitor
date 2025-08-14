@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -74,6 +75,70 @@ func TestTamperedCheckpoint(t *testing.T) {
 		if wasNewlineTrailing {
 			tamperedBytes = append(tamperedBytes, '\n')
 		}
+		if err := os.WriteFile(checkpointFile, tamperedBytes, 0644); err != nil {
+			t.Fatalf("failed to write tampered checkpoint: %v", err)
+		}
+	})
+
+	runCmd, logs := startMonitor(t, ctx, binary, checkpointFile, monitorPort, mockServer)
+
+	metrics := fetchMetrics(t, monitorPort)
+	validateLogsAndMetrics(t, logs, metrics, MonitorExpectations{
+		ExpectErrorLog:       true,
+		ExpectedFailureCount: 1,
+		ExpectedTotalCount:   1,
+	})
+
+	stopMonitor(t, runCmd)
+}
+
+func TestLogTruncationForking(t *testing.T) {
+	ctx, binary, checkpointFile, monitorPort, mockServer := setupTest(t)
+	defer mockServer.Close()
+
+	t.Run("truncate_fork_checkpoint_file", func(t *testing.T) {
+		content, err := os.ReadFile(checkpointFile)
+		if err != nil {
+			t.Fatalf("failed to read checkpoint file: %v", err)
+		}
+
+		contentStr := string(content)
+		wasNewlineTrailing := strings.HasSuffix(contentStr, "\n")
+		contentStr = strings.TrimSuffix(contentStr, "\n")
+		wasEscapedTrailing := strings.HasSuffix(contentStr, "\\n")
+		contentStr = strings.TrimSuffix(contentStr, "\\n")
+
+		lines := strings.SplitN(contentStr, "\\n", 4)
+		if len(lines) < 3 {
+			t.Fatalf("invalid checkpoint file format: expected at least 3 lines, got %d", len(lines))
+		}
+
+		treeSizeLine := lines[1]
+		rootHashLine := lines[2]
+
+		// Truncate: decrease the tree size
+		newTreeSize := "0"
+		if n, err := strconv.Atoi(treeSizeLine); err == nil && n > 10 {
+			newTreeSize = fmt.Sprintf("%d", n-10)
+		} else if err == nil {
+			newTreeSize = "1"
+		}
+		// Fork: alter the root hash
+		newRootHash := rootHashLine + "forked"
+
+		lines[1] = newTreeSize
+		lines[2] = newRootHash
+
+		tamperedContent := strings.Join(lines, "\\n")
+		if wasEscapedTrailing {
+			tamperedContent += "\\n"
+		}
+
+		tamperedBytes := []byte(tamperedContent)
+		if wasNewlineTrailing {
+			tamperedBytes = append(tamperedBytes, '\n')
+		}
+
 		if err := os.WriteFile(checkpointFile, tamperedBytes, 0644); err != nil {
 			t.Fatalf("failed to write tampered checkpoint: %v", err)
 		}
