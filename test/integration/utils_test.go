@@ -47,7 +47,10 @@ x1SXoyVJNLAXZiYXCdPm7+DULIZXyKSSv6RS2emHrBbWtCrQtBaM3GxlMA==
 
 // setupTest prepares the test environment: builds the binary, initializes the checkpoint file,
 // and allocates a port. Returns the context, binary path, checkpoint file path, and monitor port.
-func setupTest(t *testing.T, mockServer *httptest.Server) (context.Context, string, string, string) {
+//
+// Some tests (for example, when the Rekor server is intentionally unreachable) cannot generate
+// a checkpoint. In those cases, pass skipCheckpoint = true to skip this step.
+func setupTest(t *testing.T, serverUrl string, skipCheckpoint bool) (context.Context, string, string, string) {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -65,24 +68,26 @@ func setupTest(t *testing.T, mockServer *httptest.Server) (context.Context, stri
 	dataDir := t.TempDir()
 	checkpointFile := filepath.Join(dataDir, "checkpoint_log.txt")
 
-	t.Run("generate_initial_checkpoint_file", func(t *testing.T) {
-		initCmd := exec.CommandContext(ctx, binary,
-			"--once",
-			"--file", checkpointFile,
-			"--url", mockServer.URL,
-		)
-		initCmd.Stdout = os.Stdout
-		initCmd.Stderr = os.Stderr
-		err := initCmd.Run()
-		if err == nil {
-			t.Fatal("expected error on initial run due to no start index")
-		}
+	if !skipCheckpoint {
+		// Only run initial checkpoint if server is reachable
+		t.Run("generate_initial_checkpoint_file", func(t *testing.T) {
+			initCmd := exec.CommandContext(ctx, binary,
+				"--once",
+				"--file", checkpointFile,
+				"--url", serverUrl,
+			)
+			initCmd.Stdout = os.Stdout
+			initCmd.Stderr = os.Stderr
+			err := initCmd.Run()
+			if err == nil {
+				t.Fatal("expected error on initial run due to no start index")
+			}
 
-		if _, err := os.Stat(checkpointFile); err != nil {
-			t.Fatalf("checkpoint file not created: %v", err)
-		}
-	})
-
+			if _, err := os.Stat(checkpointFile); err != nil {
+				t.Fatalf("checkpoint file not created: %v", err)
+			}
+		})
+	}
 	listener, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
 		t.Fatalf("failed to find free port: %v", err)
@@ -94,7 +99,7 @@ func setupTest(t *testing.T, mockServer *httptest.Server) (context.Context, stri
 }
 
 // Start the monitor and return the Cmd and logs builder
-func startMonitor(t *testing.T, ctx context.Context, binary, checkpointFile, monitorPort string, server *httptest.Server) (*exec.Cmd, *strings.Builder) {
+func startMonitor(t *testing.T, ctx context.Context, binary, checkpointFile, monitorPort string, serverUrl string) (*exec.Cmd, *strings.Builder) {
 	t.Helper()
 
 	var runCmd *exec.Cmd
@@ -105,7 +110,7 @@ func startMonitor(t *testing.T, ctx context.Context, binary, checkpointFile, mon
 			"--once=false",
 			"--interval=2s",
 			"--file", checkpointFile,
-			"--url", server.URL,
+			"--url", serverUrl,
 			"--monitor-port", monitorPort,
 		)
 

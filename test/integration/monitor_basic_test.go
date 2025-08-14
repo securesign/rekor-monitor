@@ -7,10 +7,10 @@ import (
 
 func TestMonitorWithValidCheckpoint(t *testing.T) {
 	mockServer := RekorServer().WithData().Build()
-	ctx, binary, checkpointFile, monitorPort := setupTest(t, mockServer)
+	ctx, binary, checkpointFile, monitorPort := setupTest(t, mockServer.URL, false)
 	defer mockServer.Close()
 
-	runCmd, logs := startMonitor(t, ctx, binary, checkpointFile, monitorPort, mockServer)
+	runCmd, logs := startMonitor(t, ctx, binary, checkpointFile, monitorPort, mockServer.URL)
 
 	metrics := fetchMetrics(t, monitorPort)
 	validateLogsAndMetrics(t, logs, metrics, MonitorExpectations{
@@ -33,10 +33,10 @@ func TestMonitorWithValidCheckpoint(t *testing.T) {
 
 func TestMonitorWithEmptyLog(t *testing.T) {
 	emptyMockServer := RekorServer().Build()
-	ctx, binary, checkpointFile, monitorPort := setupTest(t, emptyMockServer)
+	ctx, binary, checkpointFile, monitorPort := setupTest(t, emptyMockServer.URL, false)
 	defer emptyMockServer.Close()
 
-	runCmd, logs := startMonitor(t, ctx, binary, checkpointFile, monitorPort, emptyMockServer)
+	runCmd, logs := startMonitor(t, ctx, binary, checkpointFile, monitorPort, emptyMockServer.URL)
 
 	metrics := fetchMetrics(t, monitorPort)
 	validateLogsAndMetrics(t, logs, metrics, MonitorExpectations{

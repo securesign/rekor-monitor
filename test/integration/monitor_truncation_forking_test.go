@@ -36,14 +36,14 @@ func truncateAndForkCheckpointFile(t *testing.T, checkpointFile string) {
 
 func TestLogTruncationForking(t *testing.T) {
 	mockServer := RekorServer().WithData().Build()
-	ctx, binary, checkpointFile, monitorPort := setupTest(t, mockServer)
+	ctx, binary, checkpointFile, monitorPort := setupTest(t, mockServer.URL, false)
 	defer mockServer.Close()
 
 	t.Run("truncate_fork_checkpoint_file", func(t *testing.T) {
 		truncateAndForkCheckpointFile(t, checkpointFile)
 	})
 
-	runCmd, logs := startMonitor(t, ctx, binary, checkpointFile, monitorPort, mockServer)
+	runCmd, logs := startMonitor(t, ctx, binary, checkpointFile, monitorPort, mockServer.URL)
 
 	metrics := fetchMetrics(t, monitorPort)
 	validateLogsAndMetrics(t, logs, metrics, MonitorExpectations{
