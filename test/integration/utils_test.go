@@ -18,77 +18,9 @@ import (
 
 type MonitorExpectations struct {
 	ExpectErrorLog       bool
+	ExpectedErrorType    string
 	ExpectedFailureCount int
 	ExpectedTotalCount   int
-}
-
-func TestMonitorWithValidCheckpoint(t *testing.T) {
-	ctx, binary, checkpointFile, monitorPort, mockServer := setupTest(t)
-	defer mockServer.Close()
-
-	runCmd, logs := startMonitor(t, ctx, binary, checkpointFile, monitorPort, mockServer)
-
-	metrics := fetchMetrics(t, monitorPort)
-	validateLogsAndMetrics(t, logs, metrics, MonitorExpectations{
-		ExpectErrorLog:       false,
-		ExpectedFailureCount: 0,
-		ExpectedTotalCount:   1,
-	})
-
-	time.Sleep(1 * time.Second)
-
-	metrics = fetchMetrics(t, monitorPort)
-	validateLogsAndMetrics(t, logs, metrics, MonitorExpectations{
-		ExpectErrorLog:       false,
-		ExpectedFailureCount: 0,
-		ExpectedTotalCount:   2,
-	})
-
-	stopMonitor(t, runCmd)
-}
-
-func TestTamperedCheckpoint(t *testing.T) {
-	ctx, binary, checkpointFile, monitorPort, mockServer := setupTest(t)
-	defer mockServer.Close()
-
-	t.Run("validate_and_tamper_checkpoint_file", func(t *testing.T) {
-		content, err := os.ReadFile(checkpointFile)
-		if err != nil {
-			t.Fatalf("failed to read checkpoint file: %v", err)
-		}
-		contentStr := string(content)
-		wasNewlineTrailing := strings.HasSuffix(contentStr, "\n")
-		contentStr = strings.TrimSuffix(contentStr, "\n")
-		wasEscapedTrailing := strings.HasSuffix(contentStr, "\\n")
-		contentStr = strings.TrimSuffix(contentStr, "\\n")
-		lines := strings.SplitN(contentStr, "\\n", 4)
-		if len(lines) < 3 {
-			t.Fatalf("invalid checkpoint file format: expected at least 3 lines, got %d", len(lines))
-		}
-		lines[2] = lines[2] + "tampered"
-		tamperedContent := strings.Join(lines, "\\n")
-		if wasEscapedTrailing {
-			tamperedContent += "\\n"
-		}
-		tamperedBytes := []byte(tamperedContent)
-		if wasNewlineTrailing {
-			tamperedBytes = append(tamperedBytes, '\n')
-		}
-		if err := os.WriteFile(checkpointFile, tamperedBytes, 0644); err != nil {
-			t.Fatalf("failed to write tampered checkpoint: %v", err)
-		}
-	})
-
-	runCmd, logs := startMonitor(t, ctx, binary, checkpointFile, monitorPort, mockServer)
-
-	metrics := fetchMetrics(t, monitorPort)
-	validateLogsAndMetrics(t, logs, metrics, MonitorExpectations{
-		ExpectErrorLog:       true,
-		ExpectedFailureCount: 1,
-		ExpectedTotalCount:   1,
-	})
-
-	stopMonitor(t, runCmd)
 }
 
 // setupTest prepares the test environment: builds the binary, initializes the checkpoint file,
@@ -221,6 +153,9 @@ func validateLogsAndMetrics(t *testing.T, logs *strings.Builder, metricsStr stri
 			if !strings.Contains(logs.String(), "error running consistency check") {
 				t.Errorf("expected error log not found:\n%s", logs.String())
 			}
+			if exp.ExpectedErrorType != "" && !strings.Contains(logs.String(), exp.ExpectedErrorType) {
+				t.Errorf("expected error type '%s' not found in logs:\n%s", exp.ExpectedErrorType, logs.String())
+			}
 		} else {
 			if strings.Contains(logs.String(), "error") {
 				t.Errorf("unexpected error found in logs:\n%s", logs.String())
@@ -288,4 +223,66 @@ kBbmLSGtks4L3qX6yYY0zufBnhC8Ur/iy55GhWP/9A/bY2LhC30M9+RYtw==
 	})
 
 	return httptest.NewServer(handler)
+}
+
+// modifyCheckpointFile reads a checkpoint file, applies modifications via a callback function,
+// and writes the modified content back to the file.
+//
+// Parameters:
+//   - t: The testing object for error reporting.
+//   - checkpointFile: The path to the checkpoint file to modify.
+//   - modify: A callback function that applies changes to the parsed lines.
+//
+// The function performs the following steps:
+//  1. Reads the checkpoint file content.
+//  2. Preserves trailing newline and escaped newline ("\\n") if present.
+//  3. Splits the content into lines using "\\n" as the delimiter, expecting at least 3 lines
+//     (based on the checkpoint file format: tree ID, tree size, root hash, and optional signature).
+//     The SplitN function uses 4 as the maximum number of splits to ensure the signature (if present)
+//     is captured as a single line, even if it contains additional "\\n" separators.
+//  4. Calls the provided callback function to modify the lines (e.g., altering the tree size or root hash).
+//  5. Reconstructs the content with the original trailing newline and escaped newline properties.
+//  6. Writes the modified content back to the file with 0644 permissions.
+//
+// The number 4 in SplitN is chosen to accommodate the expected checkpoint file format:
+//   - Line 1: Tree ID
+//   - Line 2: Tree size
+//   - Line 3: Root hash
+//   - Line 4+: Optional signature or additional data
+//
+// By limiting to 4 splits, we ensure the signature (which may contain "\\n") is not split further.
+func modifyCheckpointFile(t *testing.T, checkpointFile string, modify func(lines []string)) {
+	t.Helper()
+
+	content, err := os.ReadFile(checkpointFile)
+	if err != nil {
+		t.Fatalf("failed to read checkpoint file: %v", err)
+	}
+
+	contentStr := string(content)
+	wasNewlineTrailing := strings.HasSuffix(contentStr, "\n")
+	contentStr = strings.TrimSuffix(contentStr, "\n")
+	wasEscapedTrailing := strings.HasSuffix(contentStr, "\\n")
+	contentStr = strings.TrimSuffix(contentStr, "\\n")
+
+	lines := strings.SplitN(contentStr, "\\n", 4)
+	if len(lines) < 3 {
+		t.Fatalf("invalid checkpoint file format: expected at least 3 lines, got %d", len(lines))
+	}
+
+	modify(lines)
+
+	modifiedContent := strings.Join(lines, "\\n")
+	if wasEscapedTrailing {
+		modifiedContent += "\\n"
+	}
+
+	modifiedBytes := []byte(modifiedContent)
+	if wasNewlineTrailing {
+		modifiedBytes = append(modifiedBytes, '\n')
+	}
+
+	if err := os.WriteFile(checkpointFile, modifiedBytes, 0644); err != nil {
+		t.Fatalf("failed to write modified checkpoint: %v", err)
+	}
 }
