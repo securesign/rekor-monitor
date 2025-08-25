@@ -23,12 +23,21 @@ type MonitorExpectations struct {
 	ExpectedTotalCount   int
 }
 
+// RekorServerBuilder helps construct mock Rekor servers with different states.
+type RekorServerBuilder struct {
+	publicKey string
+	logJSON   string
+}
+
+// RekorServer returns a new builder with defaults.
+func RekorServer() *RekorServerBuilder {
+	return &RekorServerBuilder{}
+}
+
 // setupTest prepares the test environment: builds the binary, initializes the checkpoint file,
 // and allocates a port. Returns the context, binary path, checkpoint file path, and monitor port.
-func setupTest(t *testing.T) (context.Context, string, string, string, *httptest.Server) {
+func setupTest(t *testing.T, mockServer *httptest.Server) (context.Context, string, string, string) {
 	t.Helper()
-
-	mockServer := StartMockRekorServer()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
@@ -70,7 +79,7 @@ func setupTest(t *testing.T) (context.Context, string, string, string, *httptest
 	monitorPort := fmt.Sprintf("%d", listener.Addr().(*net.TCPAddr).Port)
 	listener.Close()
 
-	return ctx, binary, checkpointFile, monitorPort, mockServer
+	return ctx, binary, checkpointFile, monitorPort
 }
 
 // Start the monitor and return the Cmd and logs builder
@@ -200,26 +209,50 @@ func stopMonitor(t *testing.T, runCmd *exec.Cmd) {
 	})
 }
 
-// StartMockRekorServer returns an httptest.Server that mimics Rekor endpoints.
-func StartMockRekorServer() *httptest.Server {
-	handler := http.NewServeMux()
+// WithEmptyData configures the server to serve an empty log.
+func (b *RekorServerBuilder) WithEmptyData() *RekorServerBuilder {
+	b.publicKey = `-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEFSHl2cMn87xLeZuOo0q3tGgdj8+y
+x1SXoyVJNLAXZiYXCdPm7+DULIZXyKSSv6RS2emHrBbWtCrQtBaM3GxlMA==
+-----END PUBLIC KEY-----`
 
-	handler.HandleFunc("/api/v1/log/publicKey", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/x-pem-file")
-		fmt.Fprint(w, `-----BEGIN PUBLIC KEY-----
+	b.logJSON = `{
+  "rootHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "signedTreeHead": "c45c80833111 - 2882947332475159079\n0\n47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=\n\n— c45c80833111 8YHtBzBFAiBOzlkS1nQNcmgd24f/gawQ/LRYyUh6NjO55Pn3PJTbZgIhAPyb+DCWdgFNqQVmVp8eBaSTrCwdICr09QMiNtyPgvGm\n",
+  "treeID": "2882947332475159079",
+  "treeSize": 0
+}`
+	return b
+}
+
+// WithData configures the server to serve a non-empty log.
+func (b *RekorServerBuilder) WithData() *RekorServerBuilder {
+	b.publicKey = `-----BEGIN PUBLIC KEY-----
 MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE2G2Y+2tabdTV5BcGiBIx0a9fAFwr
 kBbmLSGtks4L3qX6yYY0zufBnhC8Ur/iy55GhWP/9A/bY2LhC30M9+RYtw==
------END PUBLIC KEY-----`)
-	})
+-----END PUBLIC KEY-----`
 
-	handler.HandleFunc("/api/v1/log", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{
+	b.logJSON = `{
   "rootHash": "dd984b288de629496979d43d86220c6c92232abdef4dcfae7958b2c56ab04060",
   "signedTreeHead": "rekor.sigstore.dev - 1193050959916656506\n266676745\n3ZhLKI3mKUlpedQ9hiIMbJIjKr3vTc+ueViyxWqwQGA=\n\n— rekor.sigstore.dev wNI9ajBEAiAE7ER4yd8Waq4ZzLQt9BIUyfAvbizhv5PCcxk5Glf28AIgWT6LH4VlkrI8VhZnqCPigxEVzdlwVQpuRo0OsISdPGs=\n",
   "treeID": "1193050959916656506",
   "treeSize": 266676745
-}`)
+}`
+	return b
+}
+
+// Build spins up the httptest.Server with the chosen configuration.
+func (b *RekorServerBuilder) Build() *httptest.Server {
+	handler := http.NewServeMux()
+
+	handler.HandleFunc("/api/v1/log/publicKey", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-pem-file")
+		fmt.Fprint(w, b.publicKey)
+	})
+
+	handler.HandleFunc("/api/v1/log", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, b.logJSON)
 	})
 
 	return httptest.NewServer(handler)

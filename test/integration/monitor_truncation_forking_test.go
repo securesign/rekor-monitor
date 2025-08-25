@@ -35,7 +35,8 @@ func truncateAndForkCheckpointFile(t *testing.T, checkpointFile string) {
 }
 
 func TestLogTruncationForking(t *testing.T) {
-	ctx, binary, checkpointFile, monitorPort, mockServer := setupTest(t)
+	mockServer := RekorServer().WithData().Build()
+	ctx, binary, checkpointFile, monitorPort := setupTest(t, mockServer)
 	defer mockServer.Close()
 
 	t.Run("truncate_fork_checkpoint_file", func(t *testing.T) {
