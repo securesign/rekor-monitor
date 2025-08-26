@@ -29,9 +29,20 @@ type RekorServerBuilder struct {
 	logJSON   string
 }
 
-// RekorServer returns a new builder with defaults.
+// RekorServer returns a new builder preconfigured with an empty log.
 func RekorServer() *RekorServerBuilder {
-	return &RekorServerBuilder{}
+	return &RekorServerBuilder{
+		publicKey: `-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEFSHl2cMn87xLeZuOo0q3tGgdj8+y
+x1SXoyVJNLAXZiYXCdPm7+DULIZXyKSSv6RS2emHrBbWtCrQtBaM3GxlMA==
+-----END PUBLIC KEY-----`,
+		logJSON: `{
+  "rootHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "signedTreeHead": "c45c80833111 - 2882947332475159079\n0\n47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=\n\n— c45c80833111 8YHtBzBFAiBOzlkS1nQNcmgd24f/gawQ/LRYyUh6NjO55Pn3PJTbZgIhAPyb+DCWdgFNqQVmVp8eBaSTrCwdICr09QMiNtyPgvGm\n",
+  "treeID": "2882947332475159079",
+  "treeSize": 0
+}`,
+	}
 }
 
 // setupTest prepares the test environment: builds the binary, initializes the checkpoint file,
@@ -207,22 +218,6 @@ func stopMonitor(t *testing.T, runCmd *exec.Cmd) {
 			}
 		}
 	})
-}
-
-// WithEmptyData configures the server to serve an empty log.
-func (b *RekorServerBuilder) WithEmptyData() *RekorServerBuilder {
-	b.publicKey = `-----BEGIN PUBLIC KEY-----
-MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEFSHl2cMn87xLeZuOo0q3tGgdj8+y
-x1SXoyVJNLAXZiYXCdPm7+DULIZXyKSSv6RS2emHrBbWtCrQtBaM3GxlMA==
------END PUBLIC KEY-----`
-
-	b.logJSON = `{
-  "rootHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-  "signedTreeHead": "c45c80833111 - 2882947332475159079\n0\n47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=\n\n— c45c80833111 8YHtBzBFAiBOzlkS1nQNcmgd24f/gawQ/LRYyUh6NjO55Pn3PJTbZgIhAPyb+DCWdgFNqQVmVp8eBaSTrCwdICr09QMiNtyPgvGm\n",
-  "treeID": "2882947332475159079",
-  "treeSize": 0
-}`
-	return b
 }
 
 // WithData configures the server to serve a non-empty log.

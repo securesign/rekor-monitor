@@ -32,7 +32,7 @@ func TestMonitorWithValidCheckpoint(t *testing.T) {
 }
 
 func TestMonitorWithEmptyLog(t *testing.T) {
-	emptyMockServer := RekorServer().WithEmptyData().Build()
+	emptyMockServer := RekorServer().Build()
 	ctx, binary, checkpointFile, monitorPort := setupTest(t, emptyMockServer)
 	defer emptyMockServer.Close()
 
