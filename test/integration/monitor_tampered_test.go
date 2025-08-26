@@ -18,7 +18,8 @@ func tamperCheckpointRootHash(t *testing.T, checkpointFile string) {
 }
 
 func TestTamperedCheckpoint(t *testing.T) {
-	ctx, binary, checkpointFile, monitorPort, mockServer := setupTest(t)
+	mockServer := RekorServer().WithData().Build()
+	ctx, binary, checkpointFile, monitorPort := setupTest(t, mockServer)
 	defer mockServer.Close()
 
 	t.Run("validate_and_tamper_checkpoint_file", func(t *testing.T) {
