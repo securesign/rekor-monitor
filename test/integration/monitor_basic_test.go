@@ -1,13 +1,16 @@
 package integration
 
 import (
+	"context"
 	"testing"
 	"time"
 )
 
 func TestMonitorWithValidCheckpoint(t *testing.T) {
 	mockServer := RekorServer().WithData().Build()
-	ctx, binary, checkpointFile, monitorPort := setupTest(t, mockServer.URL, false)
+	binary, checkpointFile, monitorPort := setupTest(t, mockServer.URL, false)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	defer mockServer.Close()
 
 	runCmd, logs := startMonitor(t, ctx, binary, checkpointFile, monitorPort, mockServer.URL)
@@ -28,14 +31,16 @@ func TestMonitorWithValidCheckpoint(t *testing.T) {
 		ExpectedTotalCount:   2,
 	})
 
-	stopMonitor(t, runCmd)
+	stopMonitor(t, cancel, runCmd)
 }
 
 func TestMonitorWithEmptyLog(t *testing.T) {
 	emptyMockServer := RekorServer().Build()
-	ctx, binary, checkpointFile, monitorPort := setupTest(t, emptyMockServer.URL, false)
+	binary, checkpointFile, monitorPort := setupTest(t, emptyMockServer.URL, false)
 	defer emptyMockServer.Close()
 
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	runCmd, logs := startMonitor(t, ctx, binary, checkpointFile, monitorPort, emptyMockServer.URL)
 
 	metrics := fetchMetrics(t, monitorPort)
@@ -45,5 +50,5 @@ func TestMonitorWithEmptyLog(t *testing.T) {
 		ExpectedTotalCount:   1,
 	})
 
-	stopMonitor(t, runCmd)
+	stopMonitor(t, cancel, runCmd)
 }

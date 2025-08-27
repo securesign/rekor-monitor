@@ -1,9 +1,11 @@
 package integration
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"testing"
+	"time"
 )
 
 // truncateAndForkCheckpointFile modifies a checkpoint file by reducing its tree size and
@@ -36,9 +38,11 @@ func truncateAndForkCheckpointFile(t *testing.T, checkpointFile string) {
 
 func TestLogTruncationForking(t *testing.T) {
 	mockServer := RekorServer().WithData().Build()
-	ctx, binary, checkpointFile, monitorPort := setupTest(t, mockServer.URL, false)
+	binary, checkpointFile, monitorPort := setupTest(t, mockServer.URL, false)
 	defer mockServer.Close()
 
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	t.Run("truncate_fork_checkpoint_file", func(t *testing.T) {
 		truncateAndForkCheckpointFile(t, checkpointFile)
 	})
@@ -53,5 +57,5 @@ func TestLogTruncationForking(t *testing.T) {
 		ExpectedTotalCount:   1,
 	})
 
-	stopMonitor(t, runCmd)
+	stopMonitor(t, cancel, runCmd)
 }

@@ -1,7 +1,9 @@
 package integration
 
 import (
+	"context"
 	"testing"
+	"time"
 )
 
 // tamperCheckpointRootHash modifies a checkpoint file by appending "tampered" to its root hash
@@ -19,8 +21,11 @@ func tamperCheckpointRootHash(t *testing.T, checkpointFile string) {
 
 func TestTamperedCheckpoint(t *testing.T) {
 	mockServer := RekorServer().WithData().Build()
-	ctx, binary, checkpointFile, monitorPort := setupTest(t, mockServer.URL, false)
+	binary, checkpointFile, monitorPort := setupTest(t, mockServer.URL, false)
 	defer mockServer.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
 	t.Run("validate_and_tamper_checkpoint_file", func(t *testing.T) {
 		tamperCheckpointRootHash(t, checkpointFile)
@@ -36,5 +41,5 @@ func TestTamperedCheckpoint(t *testing.T) {
 		ExpectedTotalCount:   1,
 	})
 
-	stopMonitor(t, runCmd)
+	stopMonitor(t, cancel, runCmd)
 }

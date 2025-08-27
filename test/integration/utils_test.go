@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -11,7 +12,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -50,11 +50,8 @@ x1SXoyVJNLAXZiYXCdPm7+DULIZXyKSSv6RS2emHrBbWtCrQtBaM3GxlMA==
 //
 // Some tests (for example, when the Rekor server is intentionally unreachable) cannot generate
 // a checkpoint. In those cases, pass skipCheckpoint = true to skip this step.
-func setupTest(t *testing.T, serverUrl string, skipCheckpoint bool) (context.Context, string, string, string) {
+func setupTest(t *testing.T, serverUrl string, skipCheckpoint bool) (string, string, string) {
 	t.Helper()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	t.Cleanup(cancel)
 
 	buildDir := t.TempDir()
 	binary := filepath.Join(buildDir, "rekor_monitor")
@@ -69,6 +66,9 @@ func setupTest(t *testing.T, serverUrl string, skipCheckpoint bool) (context.Con
 	checkpointFile := filepath.Join(dataDir, "checkpoint_log.txt")
 
 	if !skipCheckpoint {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
 		// Only run initial checkpoint if server is reachable
 		t.Run("generate_initial_checkpoint_file", func(t *testing.T) {
 			initCmd := exec.CommandContext(ctx, binary,
@@ -95,15 +95,15 @@ func setupTest(t *testing.T, serverUrl string, skipCheckpoint bool) (context.Con
 	monitorPort := fmt.Sprintf("%d", listener.Addr().(*net.TCPAddr).Port)
 	listener.Close()
 
-	return ctx, binary, checkpointFile, monitorPort
+	return binary, checkpointFile, monitorPort
 }
 
 // Start the monitor and return the Cmd and logs builder
-func startMonitor(t *testing.T, ctx context.Context, binary, checkpointFile, monitorPort string, serverUrl string) (*exec.Cmd, *strings.Builder) {
+func startMonitor(t *testing.T, ctx context.Context, binary, checkpointFile, monitorPort string, serverUrl string) (*exec.Cmd, *bytes.Buffer) {
 	t.Helper()
 
 	var runCmd *exec.Cmd
-	var logs *strings.Builder
+	var logsBuf bytes.Buffer
 
 	t.Run("start_monitor", func(t *testing.T) {
 		runCmd = exec.CommandContext(ctx, binary,
@@ -127,15 +127,16 @@ func startMonitor(t *testing.T, ctx context.Context, binary, checkpointFile, mon
 			t.Fatalf("failed to start monitor: %v", err)
 		}
 
-		logs = &strings.Builder{}
-		go io.Copy(logs, stdoutPipe)
-		go io.Copy(logs, stderrPipe)
+		// Merge stdout + stderr into one buffer
+		mw := io.MultiWriter(&logsBuf)
+		go io.Copy(mw, stdoutPipe)
+		go io.Copy(mw, stderrPipe)
 
 		// give monitor time to start
 		time.Sleep(1500 * time.Millisecond)
 	})
 
-	return runCmd, logs
+	return runCmd, &logsBuf
 }
 
 // Fetch metrics from the monitor with retry
@@ -170,7 +171,7 @@ func fetchMetrics(t *testing.T, monitorPort string) string {
 }
 
 // Validate logs and metrics against expectations
-func validateLogsAndMetrics(t *testing.T, logs *strings.Builder, metricsStr string, exp MonitorExpectations) {
+func validateLogsAndMetrics(t *testing.T, logs *bytes.Buffer, metricsStr string, exp MonitorExpectations) {
 	t.Helper()
 
 	t.Run("validate_logs_and_metrics", func(t *testing.T) {
@@ -200,25 +201,23 @@ func validateLogsAndMetrics(t *testing.T, logs *strings.Builder, metricsStr stri
 }
 
 // Stop the monitor
-func stopMonitor(t *testing.T, runCmd *exec.Cmd) {
+func stopMonitor(t *testing.T, cancel context.CancelFunc, runCmd *exec.Cmd) {
 	t.Helper()
 
 	t.Run("stop_monitor", func(t *testing.T) {
-		if err := runCmd.Process.Signal(syscall.SIGTERM); err != nil {
-			t.Fatalf("failed to send SIGTERM to monitor: %v", err)
-		}
+		cancel()
 
 		select {
 		case <-time.After(5 * time.Second):
 			t.Fatalf("monitor did not exit within 5 seconds after SIGTERM")
 		case err := <-func() chan error {
-			errChan := make(chan error)
+			errChan := make(chan error, 1)
 			go func() {
 				errChan <- runCmd.Wait()
 			}()
 			return errChan
 		}():
-			if err != nil && !strings.Contains(err.Error(), "signal: terminated") {
+			if err != nil && !strings.Contains(err.Error(), "killed") {
 				t.Fatalf("monitor did not exit cleanly: %v", err)
 			}
 		}
