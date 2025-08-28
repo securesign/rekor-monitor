@@ -17,6 +17,8 @@ import (
 	"github.com/hashicorp/go-retryablehttp"
 )
 
+const defaultInterval = "2s"
+
 var binaryPath string
 
 func TestMain(m *testing.M) {
@@ -84,10 +86,10 @@ func findFreePort() (int, error) {
 }
 
 // Start the monitor and return the Cmd and logs builder
-func startMonitorCommand(ctx context.Context, checkpointFile string, monitorPort int, serverUrl string) *exec.Cmd {
+func startMonitorCommand(ctx context.Context, checkpointFile string, monitorPort int, serverUrl string, interval string) *exec.Cmd {
 	return exec.CommandContext(ctx, binaryPath,
 		"--once=false",
-		"--interval=2s",
+		"--interval", interval,
 		"--file", checkpointFile,
 		"--url", serverUrl,
 		"--monitor-port", fmt.Sprintf("%d", monitorPort),

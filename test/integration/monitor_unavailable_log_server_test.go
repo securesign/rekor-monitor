@@ -21,7 +21,7 @@ func TestMonitorWithUnavailableRekorServer(t *testing.T) {
 
 	var runCmd *exec.Cmd
 	t.Run("start_monitor", func(t *testing.T) {
-		runCmd = startMonitorCommand(ctx, checkpointFile, monitorPort, unavailableServer)
+		runCmd = startMonitorCommand(ctx, checkpointFile, monitorPort, unavailableServer, defaultInterval)
 	})
 
 	var outBuf bytes.Buffer

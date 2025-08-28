@@ -33,7 +33,7 @@ func TestTamperedCheckpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to find free port: %v", err)
 	}
-	runCmd := startMonitorCommand(ctx, checkpointFile, monitorPort, mockServer.URL)
+	runCmd := startMonitorCommand(ctx, checkpointFile, monitorPort, mockServer.URL, defaultInterval)
 	logs := bytes.NewBuffer(nil)
 	runCmd.Stderr = logs
 	if err := runCmd.Start(); err != nil {
