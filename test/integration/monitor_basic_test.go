@@ -1,49 +1,87 @@
 package integration
 
 import (
+	"bytes"
+	"context"
 	"testing"
 	"time"
 )
 
 func TestMonitorWithValidCheckpoint(t *testing.T) {
 	mockServer := RekorServer().WithData().Build()
-	ctx, binary, checkpointFile, monitorPort := setupTest(t, mockServer)
 	defer mockServer.Close()
 
-	runCmd, logs := startMonitor(t, ctx, binary, checkpointFile, monitorPort, mockServer)
+	ctx, cancel := context.WithCancel(context.Background())
+	checkpointFile := createCheckpointFile(ctx, t, mockServer.URL, false)
+	monitorPort, err := findFreePort()
+	if err != nil {
+		t.Fatalf("failed to find free port: %v", err)
+	}
+	runCmd := startMonitorCommand(ctx, checkpointFile, monitorPort, mockServer.URL)
+	logs := bytes.NewBuffer(nil)
+	runCmd.Stdout = logs
+	runCmd.Stderr = logs
+	if err := runCmd.Start(); err != nil {
+		t.Fatalf("failed to start monitor: %v", err)
+	}
 
-	metrics := fetchMetrics(t, monitorPort)
+	metrics, err := fetchMetrics(monitorPort)
+	if err != nil {
+		t.Fatalf("failed to fetch metrics: %v", err)
+	}
+
 	validateLogsAndMetrics(t, logs, metrics, MonitorExpectations{
 		ExpectErrorLog:       false,
 		ExpectedFailureCount: 0,
 		ExpectedTotalCount:   1,
 	})
+	// wait for second checkpoint to be written
+	time.Sleep(2 * time.Second)
 
-	time.Sleep(1 * time.Second)
-
-	metrics = fetchMetrics(t, monitorPort)
+	metrics, err = fetchMetrics(monitorPort)
+	if err != nil {
+		t.Fatalf("failed to fetch metrics: %v", err)
+	}
 	validateLogsAndMetrics(t, logs, metrics, MonitorExpectations{
 		ExpectErrorLog:       false,
 		ExpectedFailureCount: 0,
 		ExpectedTotalCount:   2,
 	})
 
-	stopMonitor(t, runCmd)
+	cancel()
+	// Wait for the monitor to exit, test timeouts if it doesn't
+	runCmd.Wait()
 }
 
 func TestMonitorWithEmptyLog(t *testing.T) {
 	emptyMockServer := RekorServer().Build()
-	ctx, binary, checkpointFile, monitorPort := setupTest(t, emptyMockServer)
 	defer emptyMockServer.Close()
 
-	runCmd, logs := startMonitor(t, ctx, binary, checkpointFile, monitorPort, emptyMockServer)
+	ctx, cancel := context.WithCancel(context.Background())
+	checkpointFile := createCheckpointFile(ctx, t, emptyMockServer.URL, false)
+	monitorPort, err := findFreePort()
+	if err != nil {
+		t.Fatalf("failed to find free port: %v", err)
+	}
+	runCmd := startMonitorCommand(ctx, checkpointFile, monitorPort, emptyMockServer.URL)
+	logs := bytes.NewBuffer(nil)
+	runCmd.Stdout = logs
+	runCmd.Stderr = logs
+	if err := runCmd.Start(); err != nil {
+		t.Fatalf("failed to start monitor: %v", err)
+	}
 
-	metrics := fetchMetrics(t, monitorPort)
+	metrics, err := fetchMetrics(monitorPort)
+	if err != nil {
+		t.Fatalf("failed to fetch metrics: %v", err)
+	}
 	validateLogsAndMetrics(t, logs, metrics, MonitorExpectations{
 		ExpectErrorLog:       false,
 		ExpectedFailureCount: 0,
 		ExpectedTotalCount:   1,
 	})
 
-	stopMonitor(t, runCmd)
+	cancel()
+	// Wait for the monitor to exit, test timeouts if it doesn't
+	runCmd.Wait()
 }

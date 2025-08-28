@@ -7,6 +7,7 @@ require (
 	github.com/go-openapi/swag v0.23.1
 	github.com/google/certificate-transparency-go v1.3.2
 	github.com/google/go-github/v65 v65.0.0
+	github.com/hashicorp/go-retryablehttp v0.7.7
 	github.com/mailgun/mailgun-go/v4 v4.23.0
 	github.com/migueleliasweb/go-github-mock v1.4.0
 	github.com/mocktools/go-smtp-mock/v2 v2.5.1
@@ -56,7 +57,6 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/mux v1.8.1 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
-	github.com/hashicorp/go-retryablehttp v0.7.7 // indirect
 	github.com/howeyc/gopass v0.0.0-20210920133722-c8aef6fb66ef // indirect
 	github.com/in-toto/in-toto-golang v0.9.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
