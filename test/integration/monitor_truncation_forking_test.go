@@ -1,11 +1,11 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strconv"
 	"testing"
-	"time"
 )
 
 // truncateAndForkCheckpointFile modifies a checkpoint file by reducing its tree size and
@@ -38,18 +38,27 @@ func truncateAndForkCheckpointFile(t *testing.T, checkpointFile string) {
 
 func TestLogTruncationForking(t *testing.T) {
 	mockServer := RekorServer().WithData().Build()
-	binary, checkpointFile, monitorPort := setupTest(t, mockServer.URL, false)
 	defer mockServer.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	ctx, cancel := context.WithCancel(context.Background())
+	checkpointFile := createCheckpointFile(ctx, t, mockServer.URL, true)
+
 	t.Run("truncate_fork_checkpoint_file", func(t *testing.T) {
 		truncateAndForkCheckpointFile(t, checkpointFile)
 	})
 
-	runCmd, logs := startMonitor(t, ctx, binary, checkpointFile, monitorPort, mockServer.URL)
+	monitorPort, err := findFreePort()
+	if err != nil {
+		t.Fatalf("failed to find free port: %v", err)
+	}
+	runCmd := startMonitorCommand(ctx, checkpointFile, monitorPort, mockServer.URL)
+	logs := bytes.NewBuffer(nil)
+	runCmd.Stderr = logs
+	if err := runCmd.Start(); err != nil {
+		t.Fatalf("failed to start monitor: %v", err)
+	}
 
-	metrics := fetchMetrics(t, monitorPort)
+	metrics, err := fetchMetrics(monitorPort)
 	validateLogsAndMetrics(t, logs, metrics, MonitorExpectations{
 		ExpectErrorLog:       true,
 		ExpectedErrorType:    "error running consistency check",
@@ -57,5 +66,7 @@ func TestLogTruncationForking(t *testing.T) {
 		ExpectedTotalCount:   1,
 	})
 
-	stopMonitor(t, cancel, runCmd)
+	cancel()
+	// Wait for the monitor to exit, test timeouts if it doesn't
+	runCmd.Wait()
 }

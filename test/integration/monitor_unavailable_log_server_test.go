@@ -1,60 +1,38 @@
 package integration
 
 import (
+	"bytes"
 	"context"
+	"os/exec"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestMonitorWithUnavailableRekorServer(t *testing.T) {
 	unavailableServer := "http://127.0.0.1:54321"
-	binary, checkpointFile, monitorPort := setupTest(t, unavailableServer, true)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	runCmd, logs := startMonitor(t, ctx, binary, checkpointFile, monitorPort, unavailableServer)
-
-	waitCh := make(chan error, 1)
-	go func() { waitCh <- runCmd.Wait() }()
-
-	// Wait until expected retry/error logs appear
-	timeout := time.After(10 * time.Second)
-	tick := time.Tick(500 * time.Millisecond)
-	found := false
-Loop:
-	for {
-		select {
-		case <-timeout:
-			break Loop
-		case <-tick:
-			out := logs.String()
-			if strings.Contains(out, "retry cancelled after") ||
-				strings.Contains(out, "connection refused") ||
-				strings.Contains(out, "dial tcp") {
-				found = true
-				break Loop
-			}
-		}
+	checkpointFile := createCheckpointFile(ctx, t, unavailableServer, false)
+	monitorPort, err := findFreePort()
+	if err != nil {
+		t.Fatalf("failed to find free port: %v", err)
 	}
 
-	if !found {
-		t.Fatalf("expected retry/cancel logs not found:\n%s", logs.String())
+	var runCmd *exec.Cmd
+	t.Run("start_monitor", func(t *testing.T) {
+		runCmd = startMonitorCommand(ctx, checkpointFile, monitorPort, unavailableServer)
+	})
+
+	var outBuf bytes.Buffer
+	runCmd.Stderr = &outBuf
+	err = runCmd.Run()
+	if err == nil {
+		t.Fatalf("monitor is expected to faile")
 	}
 
-	// Stop the monitor via context cancel
-	cancel()
-
-	select {
-	case err := <-waitCh:
-		if err == nil {
-			t.Fatal("expected monitor to exit with error, got nil")
-		}
-		if !strings.Contains(err.Error(), "exit status 1") {
-			t.Fatalf("unexpected exit error: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("monitor did not exit after context cancellation")
+	if out := outBuf.String(); !strings.Contains(out, "retry cancelled after") {
+		t.Fatalf("expected \"retry cancelled after\" logs not found:\n%s", outBuf.String())
 	}
+
 }
