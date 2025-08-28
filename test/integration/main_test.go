@@ -19,12 +19,6 @@ import (
 
 var binaryPath string
 
-// setupTest prepares the test environment: builds the binary, initializes the checkpoint file,
-// and allocates a port. Returns the context, binary path, checkpoint file path, and monitor port.
-//
-// Some tests (for example, when the Rekor server is intentionally unreachable) cannot generate
-// a checkpoint. In those cases, pass skipCheckpoint = true to skip this step.
-
 func TestMain(m *testing.M) {
 	if err := buildMonitorCmd(); err != nil {
 		log.Fatal("Unable to build rekor-monitor cli %w", err)
