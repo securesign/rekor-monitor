@@ -19,7 +19,7 @@ LABEL io.k8s.display-name="rekor-monitor container image for Red Hat Trusted Sig
 LABEL io.openshift.tags="rekor-monitor trusted-signer"
 LABEL summary="Provides the rekor_monitor binary for continuously monitoring the transparency log state of a Rekor server, performing consistency checks."
 LABEL com.redhat.component="rekor-monitor"
-LABEL name="rekor-monitor"
+LABEL name="rhtas/rekor-monitor-rhel9"
 
 COPY LICENSE /licenses/LICENSE
 
