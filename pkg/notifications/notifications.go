@@ -23,21 +23,47 @@ package notifications
 
 import (
 	"context"
+	"encoding/pem"
 	"fmt"
-	"time"
+	"os"
+	"regexp"
 
 	"github.com/sigstore/rekor-monitor/pkg/fulcio/extensions"
 	"github.com/sigstore/rekor-monitor/pkg/identity"
 )
 
-var (
-	NotificationSubject = fmt.Sprintf("rekor-monitor workflow results for %s", time.Now().Format(time.RFC822))
-)
+type NotificationContextNew func() NotificationContext
+
+// NotificationContext provides context information for notifications
+type NotificationContext struct {
+	MonitorType string `json:"monitorType"` // e.g., "rekor-monitor", "ct-monitor"
+	Subject     string `json:"subject"`     // Custom subject line
+}
+
+// NotificationBodyConverter defines an interface for payloads that can convert themselves to a notification body string
+type NotificationBodyConverter interface {
+	ToNotificationBody() ([]byte, error)
+	ToNotificationHeader() string
+}
+
+// NotificationData represents the data to be sent in a notification
+type NotificationData struct {
+	Context NotificationContext       `json:"context"`
+	Payload NotificationBodyConverter `json:"payload"` // The actual data to notify about
+}
 
 // NotificationPlatform provides the Send() method to handle alerting logic
 // for the respective notification platform extending the interface.
 type NotificationPlatform interface {
-	Send(context.Context, []identity.MonitoredIdentity) error
+	Send(context.Context, NotificationData) error
+}
+
+// CreateNotificationContext creates a custom notification context
+func CreateNotificationContext(monitorType, subject string) NotificationContext {
+	return NotificationContext{
+		MonitorType: monitorType,
+		Subject:     subject,
+	}
 }
 
 // ConfigMonitoredValues holds a set of values to compare against a given entry.
@@ -66,16 +92,76 @@ type ConfigMonitoredValues struct {
 
 // IdentityMonitorConfiguration holds the configuration settings for an identity monitor workflow run.
 type IdentityMonitorConfiguration struct {
-	StartIndex                *int                       `yaml:"startIndex"`
-	EndIndex                  *int                       `yaml:"endIndex"`
+	StartIndex                *int64                     `yaml:"startIndex"`
+	EndIndex                  *int64                     `yaml:"endIndex"`
 	MonitoredValues           ConfigMonitoredValues      `yaml:"monitoredValues"`
 	OutputIdentitiesFile      string                     `yaml:"outputIdentities"`
+	OutputIdentitiesFormat    string                     `yaml:"outputIdentitiesFormat"`
 	LogInfoFile               string                     `yaml:"logInfoFile"`
 	IdentityMetadataFile      *string                    `yaml:"identityMetadataFile"`
 	GitHubIssue               *GitHubIssueInput          `yaml:"githubIssue"`
 	EmailNotificationSMTP     *EmailNotificationInput    `yaml:"emailNotificationSMTP"`
 	EmailNotificationMailgun  *MailgunNotificationInput  `yaml:"emailNotificationMailgun"`
 	EmailNotificationSendGrid *SendGridNotificationInput `yaml:"emailNotificationSendGrid"`
+	CARootsFile               string                     `yaml:"caRootsFile"`
+	CAIntermediatesFile       string                     `yaml:"caIntermediatesFile"`
+}
+
+func validatePEMFile(pemFile string) error {
+	// Skip validation for empty file paths
+	if pemFile == "" {
+		return nil
+	}
+	if _, err := os.Stat(pemFile); err != nil {
+		return fmt.Errorf("invalid trusted CA file %s: %v", pemFile, err)
+	}
+	// Check if the file is a valid PEM file
+	caBytes, err := os.ReadFile(pemFile)
+	if err != nil {
+		return fmt.Errorf("failed to read trusted CA file %s: %v", pemFile, err)
+	}
+	block, _ := pem.Decode(caBytes)
+	if block == nil {
+		return fmt.Errorf("invalid trusted CA file %s: not a valid PEM file", pemFile)
+	}
+	return nil
+}
+
+func (c *IdentityMonitorConfiguration) Validate() error {
+	// Validate CertificateIdentities CertSubject and Issuers regexes
+	for _, certIdentity := range c.MonitoredValues.CertificateIdentities {
+		if _, err := regexp.Compile(certIdentity.CertSubject); err != nil {
+			return fmt.Errorf("invalid certSubject regex %s: %v", certIdentity.CertSubject, err)
+		}
+		for _, issuer := range certIdentity.Issuers {
+			if _, err := regexp.Compile(issuer); err != nil {
+				return fmt.Errorf("invalid issuer regex %s: %v", issuer, err)
+			}
+		}
+	}
+	// Validate Subjects regexes
+	for _, subject := range c.MonitoredValues.Subjects {
+		if _, err := regexp.Compile(subject); err != nil {
+			return fmt.Errorf("invalid subject regex %s: %v", subject, err)
+		}
+	}
+	// Validate CARoots and CAIntermediates files
+	if c.CAIntermediatesFile != "" && c.CARootsFile == "" {
+		return fmt.Errorf("intermediates CA file is set but roots CA file is not set")
+	}
+	if err := validatePEMFile(c.CARootsFile); err != nil {
+		return fmt.Errorf("invalid CARoots file %s: %v", c.CARootsFile, err)
+	}
+	if err := validatePEMFile(c.CAIntermediatesFile); err != nil {
+		return fmt.Errorf("invalid CAIntermediates file %s: %v", c.CAIntermediatesFile, err)
+	}
+	// Validate OutputIdentitiesFormat
+	switch c.OutputIdentitiesFormat {
+	case "text", "json", "":
+	default:
+		return fmt.Errorf("invalid OutputIdentitiesFormat %s: must be 'text' or 'json'", c.OutputIdentitiesFormat)
+	}
+	return nil
 }
 
 func CreateNotificationPool(config IdentityMonitorConfiguration) []NotificationPlatform {
@@ -100,10 +186,10 @@ func CreateNotificationPool(config IdentityMonitorConfiguration) []NotificationP
 	return notificationPlatforms
 }
 
-func TriggerNotifications(notificationPlatforms []NotificationPlatform, identities []identity.MonitoredIdentity) error {
+func TriggerNotifications(notificationPlatforms []NotificationPlatform, data NotificationData) error {
 	// update this as new notification platforms are implemented within rekor-monitor
 	for _, notificationPlatform := range notificationPlatforms {
-		if err := notificationPlatform.Send(context.Background(), identities); err != nil {
+		if err := notificationPlatform.Send(context.Background(), data); err != nil {
 			return fmt.Errorf("error sending notification from platform: %v", err)
 		}
 	}

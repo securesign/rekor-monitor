@@ -21,9 +21,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sigstore/rekor-monitor/pkg/fulcio/extensions"
 	"github.com/sigstore/sigstore/pkg/cryptoutils"
@@ -63,16 +65,27 @@ type MonitoredValues struct {
 	OIDMatchers []extensions.OIDExtension `yaml:"oidMatchers"`
 }
 
+type MatchedIdentityType string
+
+const (
+	MatchedIdentityTypeCertSubject    MatchedIdentityType = "certSubject"
+	MatchedIdentityTypeExtensionValue MatchedIdentityType = "extensionValue"
+	MatchedIdentityTypeFingerprint    MatchedIdentityType = "fingerprint"
+	MatchedIdentityTypeSubject        MatchedIdentityType = "subject"
+)
+
 // LogEntry holds a certificate subject, issuer, OID extension and associated value, and log entry metadata
 type LogEntry struct {
-	CertSubject    string
-	Issuer         string
-	Fingerprint    string
-	Subject        string
-	Index          int64
-	UUID           string
-	OIDExtension   asn1.ObjectIdentifier
-	ExtensionValue string
+	MatchedIdentity     string
+	MatchedIdentityType MatchedIdentityType
+	CertSubject         string
+	Issuer              string
+	Fingerprint         string
+	Subject             string
+	Index               int64
+	UUID                string
+	OIDExtension        asn1.ObjectIdentifier
+	ExtensionValue      string
 }
 
 func (e *LogEntry) String() string {
@@ -83,6 +96,13 @@ func (e *LogEntry) String() string {
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+// FailedLogEntry holds a log entry that failed to be parsed/extracted
+type FailedLogEntry struct {
+	Index int64  `json:"index"`
+	UUID  string `json:"uuid"`
+	Error string `json:"error"`
 }
 
 // MonitoredIdentity holds an identity and associated log entries matching the identity being monitored.
@@ -99,6 +119,36 @@ func PrintMonitoredIdentities(monitoredIdentities []MonitoredIdentity) ([]byte, 
 		return nil, err
 	}
 	return jsonBody, nil
+}
+
+// MonitoredIdentityList wraps []MonitoredIdentity to implement NotificationBodyConverter
+type MonitoredIdentityList []MonitoredIdentity
+
+// ToNotificationBody implements the NotificationBodyConverter interface for MonitoredIdentityList
+func (identities MonitoredIdentityList) ToNotificationBody() ([]byte, error) {
+	return PrintMonitoredIdentities(identities)
+}
+
+// ToNotificationHeader implements the NotificationBodyConverter interface for MonitoredIdentityList
+func (identities MonitoredIdentityList) ToNotificationHeader() string {
+	return "Found the following pairs of monitored identities and matching log entries: "
+}
+
+// FailedLogEntryList wraps []FailedLogEntry to implement NotificationBodyConverter
+type FailedLogEntryList []FailedLogEntry
+
+// ToNotificationBody implements the NotificationBodyConverter interface for FailedLogEntryList
+func (failedEntries FailedLogEntryList) ToNotificationBody() ([]byte, error) {
+	jsonBody, err := json.MarshalIndent(failedEntries, "", "\t")
+	if err != nil {
+		return nil, err
+	}
+	return jsonBody, nil
+}
+
+// ToNotificationHeader implements the NotificationBodyConverter interface for FailedLogEntryList
+func (failedEntries FailedLogEntryList) ToNotificationHeader() string {
+	return "Failed to parse the following log entries: "
 }
 
 // CreateIdentitiesList takes in a MonitoredValues input and returns a list of all currently monitored identities.
@@ -132,39 +182,28 @@ func CreateMonitoredIdentities(inputIdentityEntries []LogEntry, monitoredIdentit
 
 	monitoredIdentityMap := make(map[string][]LogEntry)
 	for _, idEntry := range inputIdentityEntries {
-		switch {
-		case identityMap[idEntry.CertSubject]:
-			idCertSubject := idEntry.CertSubject
-			_, ok := monitoredIdentityMap[idCertSubject]
-			if ok {
-				monitoredIdentityMap[idCertSubject] = append(monitoredIdentityMap[idCertSubject], idEntry)
-			} else {
-				monitoredIdentityMap[idCertSubject] = []LogEntry{idEntry}
-			}
-		case identityMap[idEntry.ExtensionValue]:
-			idExtValue := idEntry.ExtensionValue
-			_, ok := monitoredIdentityMap[idExtValue]
-			if ok {
-				monitoredIdentityMap[idExtValue] = append(monitoredIdentityMap[idExtValue], idEntry)
-			} else {
-				monitoredIdentityMap[idExtValue] = []LogEntry{idEntry}
-			}
-		case identityMap[idEntry.Fingerprint]:
-			idFingerprint := idEntry.Fingerprint
-			_, ok := monitoredIdentityMap[idFingerprint]
-			if ok {
-				monitoredIdentityMap[idFingerprint] = append(monitoredIdentityMap[idFingerprint], idEntry)
-			} else {
-				monitoredIdentityMap[idFingerprint] = []LogEntry{idEntry}
-			}
-		case identityMap[idEntry.Subject]:
-			idSubject := idEntry.Subject
-			_, ok := monitoredIdentityMap[idSubject]
-			if ok {
-				monitoredIdentityMap[idSubject] = append(monitoredIdentityMap[idSubject], idEntry)
-			} else {
-				monitoredIdentityMap[idSubject] = []LogEntry{idEntry}
-			}
+		if _, ok := identityMap[idEntry.MatchedIdentity]; !ok {
+			fmt.Fprintf(os.Stderr, "Matched identity %s not found in identity map\n", idEntry.MatchedIdentity)
+			continue
+		}
+
+		identityValue := ""
+		switch idEntry.MatchedIdentityType {
+		case MatchedIdentityTypeCertSubject:
+			identityValue = idEntry.CertSubject
+		case MatchedIdentityTypeExtensionValue:
+			identityValue = idEntry.ExtensionValue
+		case MatchedIdentityTypeFingerprint:
+			identityValue = idEntry.Fingerprint
+		case MatchedIdentityTypeSubject:
+			identityValue = idEntry.Subject
+		}
+
+		_, ok := monitoredIdentityMap[identityValue]
+		if ok {
+			monitoredIdentityMap[identityValue] = append(monitoredIdentityMap[identityValue], idEntry)
+		} else {
+			monitoredIdentityMap[identityValue] = []LogEntry{idEntry}
 		}
 	}
 
@@ -194,6 +233,57 @@ func MonitoredValuesExist(mvs MonitoredValues) bool {
 		return true
 	}
 	return false
+}
+
+// verifyMonitoredOIDs checks that monitored OID extensions and matching values are valid
+func verifyMonitoredOIDs(mvs MonitoredValues) error {
+	for _, oidMatcher := range mvs.OIDMatchers {
+		if len(oidMatcher.ObjectIdentifier) == 0 {
+			return errors.New("oid extension empty")
+		}
+		if len(oidMatcher.ExtensionValues) == 0 {
+			return errors.New("oid matched values empty")
+		}
+		for _, extensionValue := range oidMatcher.ExtensionValues {
+			if len(extensionValue) == 0 {
+				return errors.New("oid matched value empty")
+			}
+		}
+	}
+	return nil
+}
+
+// VerifyMonitoredValues checks that monitored values are valid
+func VerifyMonitoredValues(mvs MonitoredValues) error {
+	if !MonitoredValuesExist(mvs) {
+		return errors.New("no identities provided to monitor")
+	}
+	for _, certID := range mvs.CertificateIdentities {
+		if len(certID.CertSubject) == 0 {
+			return errors.New("certificate subject empty")
+		}
+		// issuers can be empty
+		for _, iss := range certID.Issuers {
+			if len(iss) == 0 {
+				return errors.New("issuer empty")
+			}
+		}
+	}
+	for _, fp := range mvs.Fingerprints {
+		if len(fp) == 0 {
+			return errors.New("fingerprint empty")
+		}
+	}
+	for _, sub := range mvs.Subjects {
+		if len(sub) == 0 {
+			return errors.New("subject empty")
+		}
+	}
+	err := verifyMonitoredOIDs(mvs)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // getExtension gets a certificate extension by OID where the extension value is an
@@ -322,6 +412,124 @@ func getSubjectAlternateNames[Certificate *x509.Certificate | *google_x509.Certi
 		return sans
 	}
 	return sans
+}
+
+func getCertPool[T *x509.CertPool | *google_x509.CertPool](pemFile string) (T, error) {
+	caBytes, err := os.ReadFile(pemFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read trusted CA file %q: %w", pemFile, err)
+	}
+
+	var genericRoots T
+	switch any(genericRoots).(type) {
+	case *x509.CertPool:
+		roots := x509.NewCertPool()
+		if !roots.AppendCertsFromPEM(caBytes) {
+			return nil, fmt.Errorf("failed to append trusted CA certificate in %q", pemFile)
+		}
+		genericRoots = any(roots).(T)
+	case *google_x509.CertPool:
+		roots := google_x509.NewCertPool()
+		if !roots.AppendCertsFromPEM(caBytes) {
+			return nil, fmt.Errorf("failed to append trusted CA certificate in %q", pemFile)
+		}
+		genericRoots = any(roots).(T)
+	default:
+		return nil, fmt.Errorf("unsupported CertPool type")
+	}
+
+	return genericRoots, nil
+}
+
+// ValidateCertificateChain checks that at least one certificate in the chain is signed by a trusted CA.
+func ValidateCertificateChain(certs []*x509.Certificate, caRoots string, caIntermediates string) error {
+	if (caRoots == "" && caIntermediates == "") || len(certs) == 0 {
+		return nil // No trusted CAs or no certs, skip validation
+	}
+
+	var roots *x509.CertPool
+	var err error
+	if caRoots != "" {
+		roots, err = getCertPool[*x509.CertPool](caRoots)
+		if err != nil {
+			return err
+		}
+	}
+
+	var intermediates *x509.CertPool
+	if caIntermediates != "" {
+		intermediates, err = getCertPool[*x509.CertPool](caIntermediates)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, cert := range certs {
+		opts := x509.VerifyOptions{
+			CurrentTime:   cert.NotBefore,
+			Roots:         roots,
+			Intermediates: intermediates,
+			KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
+		}
+		if _, err := cert.Verify(opts); err == nil {
+			return nil
+		}
+	}
+
+	return errors.New("no certificate in the chain is signed by a trusted CA")
+}
+
+func ValidatePreCertificateChain(certs []*google_x509.Certificate, caRoots string, caIntermediates string) error {
+	if (caRoots == "" && caIntermediates == "") || len(certs) == 0 {
+		return nil // No trusted CAs or no certs, skip validation
+	}
+
+	var roots *google_x509.CertPool
+	var err error
+	if caRoots != "" {
+		roots, err = getCertPool[*google_x509.CertPool](caRoots)
+		if err != nil {
+			return err
+		}
+	}
+
+	var intermediates *google_x509.CertPool
+	if caIntermediates != "" {
+		intermediates, err = getCertPool[*google_x509.CertPool](caIntermediates)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, cert := range certs {
+		// These are the same verification options as in the Go library code for CT
+		// https://github.com/google/certificate-transparency-go/blob/856995301233fa52f69e283f5c3cdbef1bebca21/trillian/ctfe/cert_checker.go#L143-L146
+		opts := google_x509.VerifyOptions{
+			DisableTimeChecks: true,
+			// Precertificates have the poison extension; also the Go library code does not
+			// support the standard PolicyConstraints extension (which is required to be marked
+			// critical, RFC 5280 s4.2.1.11), so never check unhandled critical extensions.
+			DisableCriticalExtensionChecks: true,
+			// Pre-issued precertificates have the Certificate Transparency EKU; also some
+			// leaves have unknown EKUs that should not be bounced just because the intermediate
+			// does not also have them (cf. https://github.com/golang/go/issues/24590)
+			DisableEKUChecks: true,
+			// Path length checks get confused by the presence of an additional
+			// pre-issuer intermediate, so disable them.
+			DisablePathLenChecks:        true,
+			DisableNameConstraintChecks: true,
+			DisableNameChecks:           false,
+			CurrentTime:                 time.Now(),
+			Roots:                       roots,
+			Intermediates:               intermediates,
+			KeyUsages:                   []google_x509.ExtKeyUsage{google_x509.ExtKeyUsageCodeSigning},
+		}
+		if _, err := cert.Verify(opts); err == nil {
+			return nil
+		}
+	}
+
+	return errors.New("no certificate in the chain is signed by a trusted CA")
 }
 
 // CertMatchesPolicy returns true if a certificate contains a given subject and optionally a given issuer

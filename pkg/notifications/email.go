@@ -16,8 +16,8 @@ package notifications
 
 import (
 	"context"
+	"strings"
 
-	"github.com/sigstore/rekor-monitor/pkg/identity"
 	"github.com/wneessen/go-mail"
 )
 
@@ -32,18 +32,18 @@ type EmailNotificationInput struct {
 	SMTPCustomOptions     []mail.Option `yaml:"SMTPCustomOptions"`
 }
 
-func GenerateEmailBody(monitoredIdentities []identity.MonitoredIdentity) (string, error) {
-	body, err := identity.PrintMonitoredIdentities(monitoredIdentities)
+// generateEmailBody generates email body for generic notification data
+func generateEmailBody(data NotificationData) (string, error) {
+	header := data.Payload.ToNotificationHeader()
+	body, err := data.Payload.ToNotificationBody()
 	if err != nil {
 		return "", err
 	}
-	return "<pre>" + string(body) + "</pre>", nil
+	return strings.Join([]string{header, "<pre>" + string(body) + "</pre>"}, "\n"), nil
 }
 
-// Send takes in an EmailNotification input and attempts to send the
-// following list of found identities to the given email address.
-// It returns an error in the case of failure.
-func (emailNotificationInput EmailNotificationInput) Send(ctx context.Context, monitoredIdentities []identity.MonitoredIdentity) error {
+// Send implements the NotificationPlatform interface
+func (emailNotificationInput EmailNotificationInput) Send(ctx context.Context, data NotificationData) error {
 	email := mail.NewMsg()
 	if err := email.From(emailNotificationInput.SenderEmailAddress); err != nil {
 		return err
@@ -51,9 +51,9 @@ func (emailNotificationInput EmailNotificationInput) Send(ctx context.Context, m
 	if err := email.To(emailNotificationInput.RecipientEmailAddress); err != nil {
 		return err
 	}
-	emailSubject := NotificationSubject
+	emailSubject := data.Context.Subject
 	email.Subject(emailSubject)
-	emailBody, err := GenerateEmailBody(monitoredIdentities)
+	emailBody, err := generateEmailBody(data)
 	if err != nil {
 		return err
 	}

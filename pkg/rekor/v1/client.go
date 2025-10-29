@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package rekor
+package v1
 
 import (
 	"context"
@@ -21,26 +21,11 @@ import (
 	"github.com/sigstore/rekor-monitor/pkg/util"
 	"github.com/sigstore/rekor/pkg/generated/client"
 	"github.com/sigstore/rekor/pkg/generated/client/entries"
-	"github.com/sigstore/rekor/pkg/generated/client/pubkey"
 	"github.com/sigstore/rekor/pkg/generated/client/tlog"
 	"github.com/sigstore/rekor/pkg/generated/models"
 )
 
-// GetPublicKey fetches the current public key from Rekor
-func GetPublicKey(ctx context.Context, rekorClient *client.Rekor) ([]byte, error) {
-	p := pubkey.NewGetPublicKeyParamsWithContext(ctx)
-	resp, err := util.Retry(ctx, func() (any, error) {
-		return rekorClient.Pubkey.GetPublicKey(p)
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	pubkeyResp := resp.(*pubkey.GetPublicKeyOK)
-	return []byte(pubkeyResp.Payload), nil
-}
-
-// GetLogInfo fetches a stable checkpoint for each log shard
+// GetLogInfo fetches the latest checkpoint for each log shard
 func GetLogInfo(ctx context.Context, rekorClient *client.Rekor) (*models.LogInfo, error) {
 	p := tlog.NewGetLogInfoParamsWithContext(ctx)
 
@@ -59,13 +44,19 @@ func GetLogInfo(ctx context.Context, rekorClient *client.Rekor) (*models.LogInfo
 // GetEntriesByIndexRange fetches all entries by log index, from (start, end]
 // If start == end, returns a single entry for that index
 // Returns error if start > end
-func GetEntriesByIndexRange(ctx context.Context, rekorClient *client.Rekor, start, end int) ([]models.LogEntry, error) {
+func GetEntriesByIndexRange(ctx context.Context, rekorClient *client.Rekor, start, end int64) ([]models.LogEntry, error) {
 	if start > end {
 		return nil, fmt.Errorf("start (%d) must be less than or equal to end (%d)", start, end)
 	}
 
 	var logEntries []models.LogEntry
 	for i := start + 1; i <= end; i += 10 {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
 		var logIndices []*int64
 		minVal := computeMin(i+10, end+1)
 		for j := i; j < minVal; j++ {
@@ -90,7 +81,7 @@ func GetEntriesByIndexRange(ctx context.Context, rekorClient *client.Rekor, star
 }
 
 // computeMin calculates the minimum of two integers. Preferred over math.Min due to verbose type conversions
-func computeMin(a, b int) int {
+func computeMin(a, b int64) int64 {
 	if a < b {
 		return a
 	}

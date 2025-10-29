@@ -17,112 +17,324 @@ package main
 
 import (
 	"context"
-	"errors"
-	"flag"
 	"fmt"
 	"log"
+	"math"
 	"os"
-	"runtime"
-	"strings"
 	"time"
 
+	"github.com/sigstore/rekor-monitor/internal/cmd"
 	"github.com/sigstore/rekor-monitor/pkg/identity"
 	"github.com/sigstore/rekor-monitor/pkg/notifications"
-	"github.com/sigstore/rekor-monitor/pkg/rekor"
-	"github.com/sigstore/rekor-monitor/pkg/server"
+	rekor_v1 "github.com/sigstore/rekor-monitor/pkg/rekor/v1"
+	rekor_v2 "github.com/sigstore/rekor-monitor/pkg/rekor/v2"
+	"github.com/sigstore/rekor-monitor/pkg/util/file"
 	"github.com/sigstore/rekor/pkg/client"
+	rekor_client "github.com/sigstore/rekor/pkg/generated/client"
 	"github.com/sigstore/rekor/pkg/generated/models"
 	"github.com/sigstore/rekor/pkg/util"
-	"gopkg.in/yaml.v2"
-	"sigs.k8s.io/release-utils/version"
+	"github.com/sigstore/sigstore-go/pkg/root"
+	"github.com/sigstore/sigstore-go/pkg/tuf"
+	"github.com/sigstore/sigstore/pkg/signature"
+	tlog "github.com/transparency-dev/formats/log"
 )
 
 // Default values for monitoring job parameters
 const (
 	publicRekorServerURL     = "https://rekor.sigstore.dev"
-	outputIdentitiesFileName = "identities.txt"
-	logInfoFileName          = "logInfo.txt"
+	TUFRepository            = "default"
+	outputIdentitiesFileName = "identities"
+	logInfoFileNamePrefix    = "logInfo"
 )
 
-// Command-line flags that are parameters to the verifier job
-var (
-	configFilePath  = flag.String("config-file", "", "path to yaml configuration file containing identity monitor settings")
-	configYamlInput = flag.String("config", "", "path to yaml configuration file containing identity monitor settings")
-	once            = flag.Bool("once", true, "whether to run the monitor on a repeated interval or once")
-	serverURL       = flag.String("url", publicRekorServerURL, "URL to the rekor server that is to be monitored")
-	logInfoFile     = flag.String("file", logInfoFileName, "path to the initial log info checkpoint file to be read from")
-	interval        = flag.Duration("interval", 5*time.Minute, "Length of interval between each periodical consistency check")
-	userAgentString = flag.String("user-agent", "", "details to include in the user agent string")
-	monitorPort     = flag.Int("monitor-port", 9464, "Port for the Prometheus metrics server")
-)
+type RekorV1MonitorLogic struct {
+	rekorClient     *rekor_client.Rekor
+	verifier        signature.Verifier
+	flags           *cmd.MonitorFlags
+	config          *notifications.IdentityMonitorConfiguration
+	monitoredValues identity.MonitoredValues
+}
 
-func handleError(msg string, err error) {
-	errWrap := errors.Join(errors.New(msg), err)
-	fmt.Fprint(os.Stderr, errWrap, "\n")
+func (l RekorV1MonitorLogic) Interval() time.Duration {
+	return l.flags.Interval
+}
 
-	if !*once {
-		errStr := errWrap.Error()
-		// These specific messages are expected in normal operation and are not treated as consistency check failures.
-		// Therefore, they are excluded from Prometheus failure metrics.
-		if strings.Contains(errStr, "consistency proofs can not be computed starting from an empty log") ||
-			strings.Contains(errStr, "no start index set and no log checkpoint") {
-			return
-		}
-		server.IncLogIndexVerificationFailure()
-	} else {
-		os.Exit(1)
+func (l RekorV1MonitorLogic) Config() *notifications.IdentityMonitorConfiguration {
+	return l.config
+}
+
+func (l RekorV1MonitorLogic) MonitoredValues() identity.MonitoredValues {
+	return l.monitoredValues
+}
+
+func (l RekorV1MonitorLogic) Once() bool {
+	return l.flags.Once
+}
+
+func (l RekorV1MonitorLogic) MonitorPort() int {
+	return l.flags.MonitorPort
+}
+
+func (l RekorV1MonitorLogic) NotificationContextNew() notifications.NotificationContext {
+	return notifications.CreateNotificationContext(
+		"rekor-monitor",
+		fmt.Sprintf("rekor-monitor workflow results for %s", time.Now().Format(time.RFC822)),
+	)
+}
+
+func (l RekorV1MonitorLogic) RunConsistencyCheck(_ context.Context) (cmd.Checkpoint, cmd.LogInfo, error) {
+	prev, cur, err := rekor_v1.RunConsistencyCheck(l.rekorClient, l.verifier, l.flags.LogInfoFile)
+	if err != nil {
+		return nil, nil, err
 	}
+	var prevCheckpoint cmd.Checkpoint
+	if prev != nil {
+		prevCheckpoint = prev
+	}
+	var curLogInfo cmd.LogInfo
+	if cur != nil {
+		curLogInfo = cur
+	}
+	return prevCheckpoint, curLogInfo, nil
+}
+
+func (l RekorV1MonitorLogic) WriteCheckpoint(prev cmd.Checkpoint, cur cmd.LogInfo) error {
+	prevCheckpoint, ok := prev.(*util.SignedCheckpoint)
+	if !ok && prev != nil {
+		return fmt.Errorf("prev is not a SignedCheckpoint")
+	}
+	curCheckpoint, err := rekor_v1.ReadLatestCheckpoint(cur.(*models.LogInfo))
+	if err != nil {
+		return fmt.Errorf("failed to read latest checkpoint: %v", err)
+	}
+
+	// TODO: Switch to writing checkpoints to GitHub so that the history is preserved. Then we only need
+	// to persist the last checkpoint.
+	if err := file.WriteCheckpointRekorV1(curCheckpoint, prevCheckpoint, l.flags.LogInfoFile, false); err != nil {
+		return fmt.Errorf("failed to write checkpoint: %v", err)
+	}
+
+	return nil
+}
+
+func (l RekorV1MonitorLogic) GetStartIndex(prev cmd.Checkpoint, cur cmd.LogInfo) *int64 {
+	checkpointStartIndex := rekor_v1.GetCheckpointIndex(cur.(*models.LogInfo), prev.(*util.SignedCheckpoint))
+	return &checkpointStartIndex
+}
+
+func (l RekorV1MonitorLogic) GetEndIndex(cur cmd.LogInfo) *int64 {
+	checkpoint, err := rekor_v1.ReadLatestCheckpoint(cur.(*models.LogInfo))
+	if err != nil {
+		return nil
+	}
+	checkpointEndIndex := rekor_v1.GetCheckpointIndex(cur.(*models.LogInfo), checkpoint)
+	return &checkpointEndIndex
+}
+
+func (l RekorV1MonitorLogic) IdentitySearch(ctx context.Context, config *notifications.IdentityMonitorConfiguration, monitoredValues identity.MonitoredValues) ([]identity.MonitoredIdentity, []identity.FailedLogEntry, error) {
+	return rekor_v1.IdentitySearch(ctx, config, l.rekorClient, monitoredValues)
+}
+
+type RekorV2MonitorLogic struct {
+	tufClient         *tuf.Client
+	flags             *cmd.MonitorFlags
+	config            *notifications.IdentityMonitorConfiguration
+	rekorShards       map[string]rekor_v2.ShardInfo
+	latestShardOrigin string
+	monitoredValues   identity.MonitoredValues
+}
+
+func (l RekorV2MonitorLogic) Interval() time.Duration {
+	return l.flags.Interval
+}
+
+func (l RekorV2MonitorLogic) Config() *notifications.IdentityMonitorConfiguration {
+	return l.config
+}
+
+func (l RekorV2MonitorLogic) MonitoredValues() identity.MonitoredValues {
+	return l.monitoredValues
+}
+
+func (l RekorV2MonitorLogic) Once() bool {
+	return l.flags.Once
+}
+
+func (l RekorV2MonitorLogic) MonitorPort() int {
+	return l.flags.MonitorPort
+}
+
+func (l RekorV2MonitorLogic) NotificationContextNew() notifications.NotificationContext {
+	return notifications.CreateNotificationContext(
+		"rekor-monitor-v2",
+		fmt.Sprintf("rekor-monitor v2 workflow results for %s", time.Now().Format(time.RFC822)),
+	)
+}
+
+func (l RekorV2MonitorLogic) RunConsistencyCheck(_ context.Context) (cmd.Checkpoint, cmd.LogInfo, error) {
+	// On each iteration, we refresh the SigningConfig metadata and
+	// update the shards if we detect a change in the newest shard
+	signingConfig, err := rekor_v2.RefreshSigningConfig(l.tufClient)
+	if err != nil {
+		return nil, nil, err
+	}
+	shouldUpdate, err := rekor_v2.ShardsNeedUpdating(l.rekorShards, signingConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+	if shouldUpdate {
+		trustedRoot, err := root.GetTrustedRoot(l.tufClient)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error getting trusted root: %v", err)
+		}
+		l.rekorShards, l.latestShardOrigin, err = rekor_v2.GetRekorShards(context.Background(), trustedRoot, signingConfig.RekorLogURLs(), l.flags.UserAgent)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error getting shards: %v", err)
+		}
+	}
+
+	prev, cur, err := rekor_v2.RunConsistencyCheck(context.Background(), l.rekorShards, l.latestShardOrigin, l.flags.LogInfoFile)
+	if err != nil {
+		return nil, nil, err
+	}
+	var prevCheckpoint cmd.Checkpoint
+	if prev != nil {
+		prevCheckpoint = prev
+	}
+	var curLogInfo cmd.LogInfo
+	if cur != nil {
+		curLogInfo = cur
+	}
+	return prevCheckpoint, curLogInfo, nil
+}
+
+func (l RekorV2MonitorLogic) WriteCheckpoint(prev cmd.Checkpoint, cur cmd.LogInfo) error {
+	prevCheckpoint, ok := prev.(*tlog.Checkpoint)
+	if !ok && prev != nil {
+		return fmt.Errorf("prev is not a Checkpoint")
+	}
+	curCheckpoint, ok := cur.(*tlog.Checkpoint)
+	if !ok {
+		return fmt.Errorf("cur is not a Checkpoint")
+	}
+	if err := file.WriteCheckpointRekorV2(curCheckpoint, prevCheckpoint, l.flags.LogInfoFile, false); err != nil {
+		return fmt.Errorf("failed to write checkpoint: %v", err)
+	}
+	return nil
+}
+
+func (l RekorV2MonitorLogic) GetStartIndex(prev cmd.Checkpoint, cur cmd.LogInfo) *int64 {
+	prevCheckpoint, ok := prev.(*tlog.Checkpoint)
+	if !ok && cur != nil {
+		return nil
+	}
+	if prevCheckpoint.Size <= 0 || prevCheckpoint.Size > math.MaxInt64 {
+		return nil
+	}
+	index := int64(prevCheckpoint.Size) - 1 //nolint: gosec // G115, log will never be large enough to overflow
+	return &index
+}
+
+func (l RekorV2MonitorLogic) GetEndIndex(cur cmd.LogInfo) *int64 {
+	// TODO: interface is inconsistent between v1 and v2: cmd.LogInfo interface is used
+	// for LogInfo in v1 LogInfo but for Checkpoint in v2.
+	curCheckpoint, ok := cur.(*tlog.Checkpoint)
+	if !ok && cur != nil {
+		return nil
+	}
+	if curCheckpoint.Size <= 0 || curCheckpoint.Size > math.MaxInt64 {
+		return nil
+	}
+	index := int64(curCheckpoint.Size) - 1 //nolint: gosec // G115, log will never be large enough to overflow
+	return &index
+}
+
+func (l RekorV2MonitorLogic) IdentitySearch(ctx context.Context, config *notifications.IdentityMonitorConfiguration, monitoredValues identity.MonitoredValues) ([]identity.MonitoredIdentity, []identity.FailedLogEntry, error) {
+	return rekor_v2.IdentitySearch(ctx, config, l.rekorShards, l.latestShardOrigin, monitoredValues)
+}
+
+func getRekorVersion(allRekorServices []root.Service, serverURL string) uint32 {
+	rekorVersion := uint32(1)
+	for _, service := range allRekorServices {
+		if serverURL == service.URL {
+			rekorVersion = service.MajorAPIVersion
+		}
+	}
+	return rekorVersion
 }
 
 // This main function performs a periodic identity search.
 // Upon starting, any existing latest snapshot data is loaded and the function runs
 // indefinitely to perform identity search for every time interval that was specified.
-func main() {
-	flag.Parse()
-
-	var config notifications.IdentityMonitorConfiguration
-
-	if *configFilePath != "" {
-		readConfig, err := os.ReadFile(*configFilePath)
-		if err != nil {
-			log.Fatalf("error reading from identity monitor configuration file: %v", err)
-		}
-
-		configString := string(readConfig)
-		if err := yaml.Unmarshal([]byte(configString), &config); err != nil {
-			log.Fatalf("error parsing identities: %v", err)
-		}
-	}
-
-	if *configYamlInput != "" {
-		if err := yaml.Unmarshal([]byte(*configYamlInput), &config); err != nil {
-			log.Fatalf("error parsing identities: %v", err)
-		}
-	}
-
-	if config.OutputIdentitiesFile == "" {
-		config.OutputIdentitiesFile = outputIdentitiesFileName
-	}
-
-	if !*once {
-		if err := server.StartMetricsServer(*monitorPort); err != nil {
-			log.Fatalf("Failed to start Prometheus metrics server: %v", err)
-		}
-	}
-
-	rekorClient, err := client.GetRekorClient(*serverURL, client.WithUserAgent(strings.TrimSpace(fmt.Sprintf("rekor-monitor/%s (%s; %s) %s", version.GetVersionInfo().GitVersion, runtime.GOOS, runtime.GOARCH, *userAgentString))))
+func mainWithReturn() int {
+	flags, config, err := cmd.ParseAndLoadConfig(publicRekorServerURL, TUFRepository, outputIdentitiesFileName, "rekor-monitor")
 	if err != nil {
-		log.Fatalf("getting Rekor client: %v", err)
+		log.Fatalf("error parsing flags and loading config: %v", err)
 	}
 
-	verifier, err := rekor.GetLogVerifier(context.Background(), rekorClient)
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	tufClient, err := cmd.GetTUFClient(flags)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	trustedRoot, err := root.GetTrustedRoot(tufClient)
+	if err != nil {
+		log.Fatal(err)
+	}
+	signingConfig, err := root.GetSigningConfig(tufClient)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	cleanupTrustedCAs, err := cmd.ConfigureTrustedCAs(config, trustedRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer cleanupTrustedCAs()
+
+	allRekorServices := signingConfig.RekorLogURLs()
+	rekorVersion := getRekorVersion(allRekorServices, flags.ServerURL)
+	if flags.LogInfoFile == "" {
+		logInfoFileName := fmt.Sprintf("%s.v%d.txt", logInfoFileNamePrefix, rekorVersion)
+		flags.LogInfoFile = logInfoFileName
+	}
+	switch rekorVersion {
+	case 1:
+		return mainLoopV1(flags, config, trustedRoot)
+	case 2:
+		rekorShards, latestShardOrigin, err := rekor_v2.GetRekorShards(context.Background(), trustedRoot, allRekorServices, flags.UserAgent)
+		if err != nil {
+			log.Printf("error getting Rekor shards: %v\n", err)
+			return 1
+		}
+		return mainLoopV2(tufClient, flags, config, rekorShards, latestShardOrigin)
+	default:
+		log.Printf("Unsupported server version %v, only '1' and '2' are supported\n", rekorVersion)
+		return 1
+	}
+}
+
+func mainLoopV1(flags *cmd.MonitorFlags, config *notifications.IdentityMonitorConfiguration, trustedRoot *root.TrustedRoot) int {
+	rekorClient, err := client.GetRekorClient(flags.ServerURL, client.WithUserAgent(flags.UserAgent))
+	if err != nil {
+		log.Printf("getting Rekor client: %v\n", err)
+		return 1
+	}
+
+	verifier, err := rekor_v1.GetLogVerifier(context.Background(), rekorClient, trustedRoot)
+	if err != nil {
+		log.Printf("error getting log verifier: %v\n", err)
+		return 1
+	}
+
 	allOIDMatchers, err := config.MonitoredValues.OIDMatchers.RenderOIDMatchers()
 	if err != nil {
-		fmt.Printf("error parsing OID matchers: %v", err)
+		log.Printf("error parsing OID matchers: %v\n", err)
+		return 1
 	}
 
 	monitoredValues := identity.MonitoredValues{
@@ -132,96 +344,45 @@ func main() {
 		OIDMatchers:           allOIDMatchers,
 	}
 
-	for _, certID := range monitoredValues.CertificateIdentities {
-		if len(certID.Issuers) == 0 {
-			fmt.Printf("Monitoring certificate subject %s\n", certID.CertSubject)
-		} else {
-			fmt.Printf("Monitoring certificate subject %s for issuer(s) %s\n", certID.CertSubject, strings.Join(certID.Issuers, ","))
-		}
+	cmd.PrintMonitoredValues(monitoredValues)
+	rekorV1MonitorLogic := RekorV1MonitorLogic{
+		rekorClient:     rekorClient,
+		verifier:        verifier,
+		flags:           flags,
+		config:          config,
+		monitoredValues: monitoredValues,
 	}
-	for _, fp := range monitoredValues.Fingerprints {
-		fmt.Printf("Monitoring fingerprint %s\n", fp)
+	cmd.MonitorLoop(rekorV1MonitorLogic)
+	return 0
+}
+
+func mainLoopV2(tufClient *tuf.Client, flags *cmd.MonitorFlags, config *notifications.IdentityMonitorConfiguration, rekorShards map[string]rekor_v2.ShardInfo, latestShardOrigin string) int {
+	allOIDMatchers, err := config.MonitoredValues.OIDMatchers.RenderOIDMatchers()
+	if err != nil {
+		fmt.Printf("error parsing OID matchers: %v", err)
+		return 1
 	}
-	for _, sub := range monitoredValues.Subjects {
-		fmt.Printf("Monitoring subject %s\n", sub)
+
+	monitoredValues := identity.MonitoredValues{
+		CertificateIdentities: config.MonitoredValues.CertificateIdentities,
+		Subjects:              config.MonitoredValues.Subjects,
+		Fingerprints:          config.MonitoredValues.Fingerprints,
+		OIDMatchers:           allOIDMatchers,
 	}
 
-	ticker := time.NewTicker(*interval)
-	defer ticker.Stop()
-
-	// To get an immediate first tick, for-select is at the end of the loop
-	for {
-		server.IncLogIndexVerificationTotal()
-		inputEndIndex := config.EndIndex
-
-		// TODO: Handle Rekor sharding
-		// https://github.com/sigstore/rekor-monitor/issues/57
-		var logInfo *models.LogInfo
-		var prevCheckpoint *util.SignedCheckpoint
-		prevCheckpoint, logInfo, err = rekor.RunConsistencyCheck(rekorClient, verifier, *logInfoFile)
-		if err != nil {
-			handleError("error running consistency check", err)
-			if !*once {
-				goto waitForTick
-			}
-		}
-
-		if config.StartIndex == nil {
-			if prevCheckpoint != nil {
-				checkpointStartIndex := rekor.GetCheckpointIndex(logInfo, prevCheckpoint)
-				config.StartIndex = &checkpointStartIndex
-			} else {
-				handleError("no start index set and no log checkpoint", nil)
-				if !*once {
-					goto waitForTick
-				}
-			}
-		}
-
-		if config.EndIndex == nil {
-			checkpoint, err := rekor.ReadLatestCheckpoint(logInfo)
-			if err != nil {
-				handleError("error reading checkpoint", err)
-				if !*once {
-					goto waitForTick
-				}
-			}
-
-			checkpointEndIndex := rekor.GetCheckpointIndex(logInfo, checkpoint)
-			config.EndIndex = &checkpointEndIndex
-		}
-
-		if *config.StartIndex > *config.EndIndex {
-			handleError(fmt.Sprintf("start index %d must be less than or equal to end index %d", *config.StartIndex, *config.EndIndex), nil)
-			if !*once {
-				goto waitForTick
-			}
-		}
-
-		if identity.MonitoredValuesExist(monitoredValues) {
-			_, err = rekor.IdentitySearch(*config.StartIndex, *config.EndIndex, rekorClient, monitoredValues, config.OutputIdentitiesFile, config.IdentityMetadataFile)
-			if err != nil {
-				handleError("failed to successfully complete identity search", err)
-				if !*once {
-					goto waitForTick
-				}
-			}
-		}
-
-		if *once || inputEndIndex != nil {
-			return
-		}
-
-		config.StartIndex = config.EndIndex
-		config.EndIndex = nil
-
-	waitForTick:
-		select {
-		case <-ticker.C:
-			continue
-		case <-server.GetSignalChan():
-			fmt.Fprintf(os.Stderr, "received signal, exiting")
-			return
-		}
+	cmd.PrintMonitoredValues(monitoredValues)
+	rekorV2MonitorLogic := RekorV2MonitorLogic{
+		tufClient:         tufClient,
+		flags:             flags,
+		config:            config,
+		rekorShards:       rekorShards,
+		latestShardOrigin: latestShardOrigin,
+		monitoredValues:   monitoredValues,
 	}
+	cmd.MonitorLoop(rekorV2MonitorLogic)
+	return 0
+}
+
+func main() {
+	os.Exit(mainWithReturn())
 }

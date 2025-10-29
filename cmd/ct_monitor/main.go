@@ -16,68 +16,148 @@
 package main
 
 import (
-	"flag"
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"os/signal"
-	"strings"
-	"syscall"
 	"time"
 
 	ctgo "github.com/google/certificate-transparency-go"
 	ctclient "github.com/google/certificate-transparency-go/client"
 	"github.com/google/certificate-transparency-go/jsonclient"
+	"github.com/sigstore/rekor-monitor/internal/cmd"
 	"github.com/sigstore/rekor-monitor/pkg/ct"
 	"github.com/sigstore/rekor-monitor/pkg/identity"
 	"github.com/sigstore/rekor-monitor/pkg/notifications"
-	"gopkg.in/yaml.v2"
+	"github.com/sigstore/rekor-monitor/pkg/util/file"
+	"github.com/sigstore/sigstore-go/pkg/root"
 )
 
 // Default values for monitoring job parameters
 const (
 	publicCTServerURL        = "https://ctfe.sigstore.dev/2022"
-	logInfoFileName          = "ctLogInfo.txt"
-	outputIdentitiesFileName = "ctIdentities.txt"
+	logInfoFileName          = "ctLogInfo"
+	outputIdentitiesFileName = "ctIdentities"
+	TUFRepository            = "default"
 )
+
+type CTMonitorLogic struct {
+	fulcioClient    *ctclient.LogClient
+	flags           *cmd.MonitorFlags
+	config          *notifications.IdentityMonitorConfiguration
+	monitoredValues identity.MonitoredValues
+}
+
+func (l CTMonitorLogic) Interval() time.Duration {
+	return l.flags.Interval
+}
+
+func (l CTMonitorLogic) Config() *notifications.IdentityMonitorConfiguration {
+	return l.config
+}
+
+func (l CTMonitorLogic) MonitoredValues() identity.MonitoredValues {
+	return l.monitoredValues
+}
+
+func (l CTMonitorLogic) Once() bool {
+	return l.flags.Once
+}
+
+func (l CTMonitorLogic) MonitorPort() int {
+	return l.flags.MonitorPort
+}
+
+func (l CTMonitorLogic) NotificationContextNew() notifications.NotificationContext {
+	return notifications.CreateNotificationContext(
+		"ct-monitor",
+		fmt.Sprintf("ct-monitor workflow results for %s", time.Now().Format(time.RFC822)),
+	)
+}
+
+func (l CTMonitorLogic) RunConsistencyCheck(_ context.Context) (cmd.Checkpoint, cmd.LogInfo, error) {
+	prev, cur, err := ct.RunConsistencyCheck(l.fulcioClient, l.flags.LogInfoFile)
+	if err != nil {
+		return nil, nil, err
+	}
+	var prevCheckpoint cmd.Checkpoint
+	if prev != nil {
+		prevCheckpoint = prev
+	}
+	var curLogInfo cmd.LogInfo
+	if cur != nil {
+		curLogInfo = cur
+	}
+	return prevCheckpoint, curLogInfo, nil
+}
+
+func (l CTMonitorLogic) WriteCheckpoint(prev cmd.Checkpoint, cur cmd.LogInfo) error {
+	prevCheckpoint, ok := prev.(*ctgo.SignedTreeHead)
+	if !ok && prev != nil {
+		return fmt.Errorf("prev is not a SignedTreeHead")
+	}
+	curCheckpoint, ok := cur.(*ctgo.SignedTreeHead)
+	if !ok {
+		return fmt.Errorf("cur is not a SignedTreeHead")
+	}
+	if err := file.WriteCTSignedTreeHead(curCheckpoint, prevCheckpoint, l.flags.LogInfoFile, false); err != nil {
+		return fmt.Errorf("failed to write checkpoint: %v", err)
+	}
+	return nil
+}
+
+func (l CTMonitorLogic) GetStartIndex(prev cmd.Checkpoint, _ cmd.LogInfo) *int64 {
+	prevSTH := prev.(*ctgo.SignedTreeHead)
+	checkpointStartIndex := int64(prevSTH.TreeSize) //nolint: gosec // G115, log will never be large enough to overflow
+	return &checkpointStartIndex
+}
+
+func (l CTMonitorLogic) GetEndIndex(cur cmd.LogInfo) *int64 {
+	currentSTH := cur.(*ctgo.SignedTreeHead)
+	checkpointEndIndex := int64(currentSTH.TreeSize) //nolint: gosec // G115
+	return &checkpointEndIndex
+}
+
+func (l CTMonitorLogic) IdentitySearch(ctx context.Context, config *notifications.IdentityMonitorConfiguration, monitoredValues identity.MonitoredValues) ([]identity.MonitoredIdentity, []identity.FailedLogEntry, error) {
+	return ct.IdentitySearch(ctx, l.fulcioClient, config, monitoredValues)
+}
 
 // This main function performs a periodic identity search.
 // Upon starting, any existing latest snapshot data is loaded and the function runs
 // indefinitely to perform identity search for every time interval that was specified.
-func main() {
-	configFilePath := flag.String("config-file", "", "path to yaml configuration file containing identity monitor settings")
-	configYamlInput := flag.String("config", "", "path to yaml configuration file containing identity monitor settings")
-	once := flag.Bool("once", true, "whether to run the monitor on a repeated interval or once")
-	logInfoFile := flag.String("file", logInfoFileName, "path to the initial log info checkpoint file to be read from")
-	serverURL := flag.String("url", publicCTServerURL, "URL to the public CT server that is to be monitored")
-	interval := flag.Duration("interval", 5*time.Minute, "Length of interval between each periodical consistency check")
-	flag.Parse()
-
-	var config notifications.IdentityMonitorConfiguration
-
-	if *configFilePath != "" {
-		readConfig, err := os.ReadFile(*configFilePath)
-		if err != nil {
-			log.Fatalf("error reading from identity monitor configuration file: %v", err)
-		}
-
-		configString := string(readConfig)
-		if err := yaml.Unmarshal([]byte(configString), &config); err != nil {
-			log.Fatalf("error parsing identities: %v", err)
-		}
-	}
-
-	if *configYamlInput != "" {
-		if err := yaml.Unmarshal([]byte(*configYamlInput), &config); err != nil {
-			log.Fatalf("error parsing identities: %v", err)
-		}
-	}
-
-	var fulcioClient *ctclient.LogClient
-	fulcioClient, err := ctclient.New(*serverURL, http.DefaultClient, jsonclient.Options{})
+func mainWithReturn() int {
+	flags, config, err := cmd.ParseAndLoadConfig(publicCTServerURL, TUFRepository, outputIdentitiesFileName, "ct-monitor")
 	if err != nil {
-		log.Fatalf("getting Fulcio client: %v", err)
+		log.Fatalf("error parsing flags and loading config: %v", err)
+	}
+	if flags.LogInfoFile == "" {
+		logInfoFileName := fmt.Sprintf("%s.txt", logInfoFileName)
+		flags.LogInfoFile = logInfoFileName
+	}
+
+	tufClient, err := cmd.GetTUFClient(flags)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	trustedRoot, err := root.GetTrustedRoot(tufClient)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	cleanupTrustedCAs, err := cmd.ConfigureTrustedCAs(config, trustedRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer cleanupTrustedCAs()
+
+	fulcioClient, err := ctclient.New(flags.ServerURL, http.DefaultClient, jsonclient.Options{
+		UserAgent: flags.UserAgent,
+	})
+	if err != nil {
+		log.Printf("getting Fulcio client: %v", err)
+		return 1
 	}
 
 	allOIDMatchers, err := config.MonitoredValues.OIDMatchers.RenderOIDMatchers()
@@ -90,87 +170,18 @@ func main() {
 		OIDMatchers:           allOIDMatchers,
 	}
 
-	for _, certID := range monitoredValues.CertificateIdentities {
-		if len(certID.Issuers) == 0 {
-			fmt.Printf("Monitoring certificate subject %s\n", certID.CertSubject)
-		} else {
-			fmt.Printf("Monitoring certificate subject %s for issuer(s) %s\n", certID.CertSubject, strings.Join(certID.Issuers, ","))
-		}
+	cmd.PrintMonitoredValues(monitoredValues)
+
+	ctMonitorLogic := CTMonitorLogic{
+		fulcioClient:    fulcioClient,
+		flags:           flags,
+		config:          config,
+		monitoredValues: monitoredValues,
 	}
-	for _, fp := range monitoredValues.Fingerprints {
-		fmt.Printf("Monitoring fingerprint %s\n", fp)
-	}
-	for _, sub := range monitoredValues.Subjects {
-		fmt.Printf("Monitoring subject %s\n", sub)
-	}
+	cmd.MonitorLoop(ctMonitorLogic)
+	return 0
+}
 
-	ticker := time.NewTicker(*interval)
-	defer ticker.Stop()
-
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
-
-	// To get an immediate first tick, for-select is at the end of the loop
-	for {
-		inputEndIndex := config.EndIndex
-
-		// TODO: Handle Rekor sharding
-		// https://github.com/sigstore/rekor-monitor/issues/57
-		var prevSTH *ctgo.SignedTreeHead
-		prevSTH, currentSTH, err := ct.RunConsistencyCheck(fulcioClient, *logInfoFile)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to successfully complete consistency check: %v", err)
-			return
-		}
-
-		if config.StartIndex == nil {
-			if prevSTH != nil {
-				checkpointStartIndex := int(prevSTH.TreeSize) //nolint: gosec // G115, log will never be large enough to overflow
-				config.StartIndex = &checkpointStartIndex
-			} else {
-				defaultStartIndex := 0
-				config.StartIndex = &defaultStartIndex
-			}
-		}
-
-		if config.EndIndex == nil {
-			checkpointEndIndex := int(currentSTH.TreeSize) //nolint: gosec // G115
-			config.EndIndex = &checkpointEndIndex
-		}
-
-		if *config.StartIndex >= *config.EndIndex {
-			fmt.Fprintf(os.Stderr, "start index %d must be strictly less than end index %d", *config.StartIndex, *config.EndIndex)
-		}
-
-		if identity.MonitoredValuesExist(monitoredValues) {
-			foundEntries, err := ct.IdentitySearch(fulcioClient, *config.StartIndex, *config.EndIndex, monitoredValues)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "failed to successfully complete identity search: %v", err)
-				return
-			}
-
-			notificationPool := notifications.CreateNotificationPool(config)
-
-			err = notifications.TriggerNotifications(notificationPool, foundEntries)
-			if err != nil {
-				// continue running consistency check if notifications fail to trigger
-				fmt.Fprintf(os.Stderr, "failed to trigger notifications: %v", err)
-			}
-		}
-
-		if *once || inputEndIndex != nil {
-			return
-		}
-
-		config.StartIndex = config.EndIndex
-		config.EndIndex = nil
-
-		select {
-		case <-ticker.C:
-			continue
-		case <-signalChan:
-			fmt.Fprintf(os.Stderr, "received signal, exiting")
-			return
-		}
-	}
+func main() {
+	os.Exit(mainWithReturn())
 }
