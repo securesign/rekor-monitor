@@ -1,0 +1,19 @@
+{
+  "signed": {
+    "_type": "targets",
+    "spec_version": "1.0.0",
+    "version": 1,
+    "expires": "2025-11-19T16:25:12Z",
+    "targets": {},
+    "delegations": {
+      "keys": {},
+      "roles": []
+    }
+  },
+  "signatures": [
+    {
+      "keyid": "99241f6b3723c3ae400fe3a090723018c288396e12b4cecf563753f5e76c85e0",
+      "sig": "05aa329ab4908ecba229f979edd08021fdaafd5de9f611e3bd7fc1f23b1cdaedd9bb94043153952b875a7afdfb02e4e3f8d84ce7f5ac1d426ab04b73ca568249121bc8d51af7c537987be191b921fde9ddd776e99412022ebc3833b19feffb2530e5dae08ffc3ee7779db20a233da5e9e0d71d5e80ed30d12cefcd37dfdab2e0da7e6754ea37a34abfff34e24e7b7b66029b7614f5ce92d4a31f15c385fbf8ee0074bc19b966364f5c2d3ac0a7a8d9390b4a58d178ed44aef60b4031764f80eb93643541a39a1a7b9dcf94c48aa8e68dec87237fa3465b90943ddc206917be2db3a7d8ae24c32d158e995693cd39cb6527d926876f04fcaf9005143ae8e037fd"
+    }
+  ]
+}

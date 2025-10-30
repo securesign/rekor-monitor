@@ -59,6 +59,10 @@ func TestLogTruncationForking(t *testing.T) {
 	}
 
 	metrics, err := fetchMetrics(monitorPort)
+	if err != nil {
+		t.Logf("rekor-monitor logs:\n%s", logs.String())
+		t.Fatalf("failed to fetch metrics: %v", err)
+	}
 	validateLogsAndMetrics(t, logs, metrics, MonitorExpectations{
 		ExpectErrorLog:       true,
 		ExpectedErrorType:    "error running consistency check",

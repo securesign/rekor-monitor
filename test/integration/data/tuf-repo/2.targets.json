@@ -1,0 +1,45 @@
+{
+  "signed": {
+    "_type": "targets",
+    "spec_version": "1.0.0",
+    "version": 2,
+    "expires": "2025-11-19T16:25:12Z",
+    "targets": {
+      "rekor.pub": {
+        "length": 177,
+        "hashes": {
+          "sha256": "2774417ab2c2a14d48985ba9561d11ede443cb54f5235ccf67fc83411736b444"
+        },
+        "custom": {
+          "sigstore": {
+            "status": "Active",
+            "uri": "https://rekor.sigstore.dev",
+            "usage": "Rekor"
+          }
+        }
+      },
+      "trusted_root.json": {
+        "length": 580,
+        "hashes": {
+          "sha256": "46f5870700630d75bb68808f613ea122716a7127e611b831d7db5f668839c6e2"
+        }
+      },
+      "signing_config.v0.2.json": {
+        "length": 378,
+        "hashes": {
+          "sha256": "10a96b044cfe104762aa0c742c5feff970e35e185e1bdf6d9a96356236aac150"
+        }
+      }
+    },
+    "delegations": {
+      "keys": {},
+      "roles": []
+    }
+  },
+  "signatures": [
+    {
+      "keyid": "99241f6b3723c3ae400fe3a090723018c288396e12b4cecf563753f5e76c85e0",
+      "sig": "360757df8356f6072b856592085cf0f392e204adc43d7ce8431a44b901bcc5f2db7ff1e6de8f53f88718698d58e2479cb7c4d84f4ed2bca6708a5668422e19eae6f56f5e4c0bd98497360be7272e1d5fc84b4d7cd3a7bf41cddb16a93fae58cf88f4a9d43be846554761072dc74a0253d07377408e9d02d8f2d66fa1f30f28dc8614b7bd005c7d8d61ad08c4855ef17e7d4e13a973fa2cdbefe5ac8cab80007029011a804ee28e9d3605a96360e388befba21205e90bdfb8be6c7cd3e09fd48273e241df9818b3055ace6a265dbfda005dbeb597bb8feace13b158019af2ab9a1673a8eca85bf8e17c189003defa8ae437911229438f28133f4885562ea26687"
+    }
+  ]
+}

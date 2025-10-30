@@ -1,0 +1,58 @@
+{
+  "signed": {
+    "_type": "targets",
+    "spec_version": "1.0.0",
+    "version": 3,
+    "expires": "2025-11-19T16:25:12Z",
+    "targets": {
+      "rekor.pub": {
+        "length": 177,
+        "hashes": {
+          "sha256": "2774417ab2c2a14d48985ba9561d11ede443cb54f5235ccf67fc83411736b444"
+        },
+        "custom": {
+          "sigstore": {
+            "status": "Active",
+            "uri": "https://rekor.sigstore.dev",
+            "usage": "Rekor"
+          }
+        }
+      },
+      "trusted_root.json": {
+        "length": 1106,
+        "hashes": {
+          "sha256": "8a46d8d0b504d47a13efbccc03b07baf86dc4ae7c0e5fc6148fdd60ff7f6145e"
+        }
+      },
+      "signing_config.v0.2.json": {
+        "length": 378,
+        "hashes": {
+          "sha256": "3b0e4a93f05f5ff9c20f3b8cf1b2ae296949438a76091ba868e2f0eed0ae9328"
+        }
+      },
+      "rekor_with_data.pub": {
+        "length": 177,
+        "hashes": {
+          "sha256": "028b09e1614bd917ea9607077f06ef0e9f15535702d56dd1393d6438f99b10b4"
+        },
+        "custom": {
+          "sigstore": {
+            "status": "Active",
+            "uri": "https://rekor.sigstore.dev",
+            "usage": "Rekor"
+          }
+        }
+      }
+    },
+    "delegations": {
+      "keys": {},
+      "roles": []
+    }
+  },
+  "signatures": [
+    {
+      "keyid": "99241f6b3723c3ae400fe3a090723018c288396e12b4cecf563753f5e76c85e0",
+      "sig": "6501ecbb754a765ce4468bc3d125c1a18192e0c000f68a5a8c55d9ea6f70dab1a53871cee3bdd32499bcea97e63f9f19d6430a3ced7734912d79ab2c8ab4509abb939a640034ec76a6137da6ab48e5e138e0d72e6100eeac8dee6d6467507c0bb4e178724191720fac70365ec75fb3e150961d0ef63a9b708711d9dfd246cae0562357a09e5bfaaeed216f384a9bf6e7a70cb2dbad35d8b1295eeb9ae25df7f42a4b1915372694599f4a6c7cb9d8e8071a9cae18b2d57e4cedc764024aab9a85326dab15a724e68798304c8df11fdeb89db9d7f2466c29eded448c2c2c89118248cd6dec00033f4987a3e8da5fb89fbc3735ba514a6266102466d723d3f79451"
+    }
+  ]
+}
