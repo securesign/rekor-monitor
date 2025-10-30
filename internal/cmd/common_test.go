@@ -388,6 +388,12 @@ emailNotificationSMTP:
 }
 
 func TestLoadMonitorConfig_ConfigFilePermissions(t *testing.T) {
+	// Skip test if running as root
+	if os.Geteuid() == 0 {
+		t.Log("Running as root, skipping permission test")
+		t.Skip("skipping permission test: running as root (can read 0000 files)")
+	}
+
 	// Test with a file that has no read permissions
 	tmpDir := t.TempDir()
 	configFile := filepath.Join(tmpDir, "no-read.yaml")
