@@ -105,6 +105,11 @@ output/*/index.html
 
 bin/
 /logInfo.txt
+/logInfo.v1.txt
+/logInfo.v2.txt
 /identities.txt
 /mirroring
-/verifier
+/rekor_monitor
+/ct_monitor
+# Added by goreleaser init:
+dist/

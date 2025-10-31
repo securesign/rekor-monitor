@@ -29,7 +29,7 @@ import (
 	"golang.org/x/mod/sumdb/note"
 )
 
-func TestReadLatestCheckpoint(t *testing.T) {
+func TestReadLatestCheckpointRekorV1(t *testing.T) {
 	f := filepath.Join(t.TempDir(), "logfile")
 	root, _ := hex.DecodeString("1a341bc342ff4e567387de9789ab14000b147124317841489172419874198147")
 
@@ -53,7 +53,7 @@ func TestReadLatestCheckpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := ReadLatestCheckpoint(f)
+	c, err := ReadLatestCheckpointRekorV1(f)
 	if err != nil {
 		t.Fatalf("error reading checkpoint: %v", err)
 	}
@@ -63,20 +63,20 @@ func TestReadLatestCheckpoint(t *testing.T) {
 	}
 
 	// failure: no log file
-	_, err = ReadLatestCheckpoint("empty")
+	_, err = ReadLatestCheckpointRekorV1("empty")
 	if err == nil || !strings.Contains(err.Error(), "no such file or directory") {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 
 	// failure: malformed note
 	os.WriteFile(f, []byte{1}, 0644)
-	_, err = ReadLatestCheckpoint(f)
+	_, err = ReadLatestCheckpointRekorV1(f)
 	if err == nil || !strings.Contains(err.Error(), "malformed note") {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 }
 
-func TestWriteAndRead(t *testing.T) {
+func TestWriteAndReadRekorV1(t *testing.T) {
 	f := filepath.Join(t.TempDir(), "logfile")
 	root, _ := hex.DecodeString("1a341bc342ff4e567387de9789ab14000b147124317841489172419874198147")
 
@@ -91,10 +91,10 @@ func TestWriteAndRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteCheckpoint(sc, f); err != nil {
+	if err := WriteCheckpointRekorV1(sc, nil, f, false); err != nil {
 		t.Fatalf("error writing checkpoint: %v", err)
 	}
-	c, err := ReadLatestCheckpoint(f)
+	c, err := ReadLatestCheckpointRekorV1(f)
 	if err != nil {
 		t.Fatalf("error reading checkpoint: %v", err)
 	}
@@ -102,28 +102,6 @@ func TestWriteAndRead(t *testing.T) {
 	result, _ := c.MarshalText()
 	if !bytes.Equal(input, result) {
 		log.Fatalf("checkpoints are not equal")
-	}
-}
-
-func TestDeleteOldCheckpoints(t *testing.T) {
-	f := filepath.Join(t.TempDir(), "logfile")
-	file, _ := os.OpenFile(f, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	// log size will be 200 by end of loop
-	for i := 0; i < 200; i++ {
-		file.WriteString("\n")
-	}
-	fi, _ := os.Stat(f)
-	if fi.Size() != 200 {
-		t.Fatalf("log size should be 200, got %d", fi.Size())
-	}
-
-	if err := DeleteOldCheckpoints(f); err != nil {
-		t.Fatalf("error deleting: %v", err)
-	}
-
-	fi, _ = os.Stat(f)
-	if fi.Size() != 100 {
-		t.Fatalf("log size should be 100, got %d", fi.Size())
 	}
 }
 
@@ -140,7 +118,7 @@ func TestReadWriteCTSignedTreeHead(t *testing.T) {
 	tempSTHFileName := tempSTHFile.Name()
 	defer os.Remove(tempSTHFileName)
 
-	err = WriteCTSignedTreeHead(sth, tempSTHFileName)
+	err = WriteCTSignedTreeHead(sth, nil, tempSTHFileName, false)
 	if err != nil {
 		t.Errorf("failed to write STH: %v", err)
 	}

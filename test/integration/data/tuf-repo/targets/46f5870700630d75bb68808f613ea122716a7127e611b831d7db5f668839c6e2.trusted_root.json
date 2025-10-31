@@ -1,0 +1,19 @@
+{
+  "mediaType": "application/vnd.dev.sigstore.trustedroot+json;version=0.1",
+  "tlogs": [
+    {
+      "baseUrl": "https://rekor.sigstore.dev",
+      "hashAlgorithm": "SHA2_256",
+      "publicKey": {
+        "rawBytes": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEFSHl2cMn87xLeZuOo0q3tGgdj8+yx1SXoyVJNLAXZiYXCdPm7+DULIZXyKSSv6RS2emHrBbWtCrQtBaM3GxlMA==",
+        "keyDetails": "PKIX_ECDSA_P256_SHA_256",
+        "validFor": {
+          "start": "2025-10-29T16:26:08Z"
+        }
+      },
+      "logId": {
+        "keyId": "8YHtB2+ZgiNYlotujPzjqs6ABRe2YFyWDmMSVJ61xf8="
+      }
+    }
+  ]
+}

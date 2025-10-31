@@ -12,14 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package rekor
+package v1
 
 import (
 	"bytes"
 	"context"
 	"crypto/x509"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -27,6 +26,7 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/sigstore/rekor-monitor/pkg/fulcio/extensions"
 	"github.com/sigstore/rekor-monitor/pkg/identity"
+	"github.com/sigstore/rekor-monitor/pkg/notifications"
 	"github.com/sigstore/rekor-monitor/pkg/util/file"
 	"github.com/sigstore/rekor/pkg/generated/client"
 	"github.com/sigstore/rekor/pkg/generated/models"
@@ -55,9 +55,11 @@ func MatchLogEntryFingerprints(logEntryAnon models.LogEntryAnon, uuid string, en
 		for _, fp := range entryFingerprints {
 			if fp == monitoredFp {
 				matchedEntries = append(matchedEntries, identity.LogEntry{
-					Fingerprint: fp,
-					Index:       *logEntryAnon.LogIndex,
-					UUID:        uuid,
+					MatchedIdentity:     monitoredFp,
+					MatchedIdentityType: identity.MatchedIdentityTypeFingerprint,
+					Fingerprint:         fp,
+					Index:               *logEntryAnon.LogIndex,
+					UUID:                uuid,
 				})
 			}
 		}
@@ -74,10 +76,12 @@ func MatchLogEntryCertificateIdentities(logEntryAnon models.LogEntryAnon, uuid s
 				return nil, fmt.Errorf("error with policy matching for UUID %s at index %d: %w", uuid, logEntryAnon.LogIndex, err)
 			} else if match {
 				matchedEntries = append(matchedEntries, identity.LogEntry{
-					CertSubject: sub,
-					Issuer:      iss,
-					Index:       *logEntryAnon.LogIndex,
-					UUID:        uuid,
+					MatchedIdentity:     monitoredCertID.CertSubject,
+					MatchedIdentityType: identity.MatchedIdentityTypeCertSubject,
+					CertSubject:         sub,
+					Issuer:              iss,
+					Index:               *logEntryAnon.LogIndex,
+					UUID:                uuid,
 				})
 			}
 		}
@@ -95,9 +99,11 @@ func MatchLogEntrySubjects(logEntryAnon models.LogEntryAnon, uuid string, entryS
 		for _, sub := range entrySubjects {
 			if regex.MatchString(sub) {
 				matchedEntries = append(matchedEntries, identity.LogEntry{
-					Subject: sub,
-					Index:   *logEntryAnon.LogIndex,
-					UUID:    uuid,
+					MatchedIdentity:     monitoredSub,
+					MatchedIdentityType: identity.MatchedIdentityTypeSubject,
+					Subject:             sub,
+					Index:               *logEntryAnon.LogIndex,
+					UUID:                uuid,
 				})
 			}
 		}
@@ -115,10 +121,12 @@ func MatchLogEntryOIDs(logEntryAnon models.LogEntryAnon, uuid string, entryCerti
 			}
 			if match {
 				matchedEntries = append(matchedEntries, identity.LogEntry{
-					Index:          *logEntryAnon.LogIndex,
-					UUID:           uuid,
-					OIDExtension:   oid,
-					ExtensionValue: extValue,
+					MatchedIdentity:     extValue,
+					MatchedIdentityType: identity.MatchedIdentityTypeExtensionValue,
+					Index:               *logEntryAnon.LogIndex,
+					UUID:                uuid,
+					OIDExtension:        oid,
+					ExtensionValue:      extValue,
 				})
 			}
 		}
@@ -127,24 +135,39 @@ func MatchLogEntryOIDs(logEntryAnon models.LogEntryAnon, uuid string, entryCerti
 }
 
 // MatchedIndices returns a list of log indices that contain the requested identities.
-func MatchedIndices(logEntries []models.LogEntry, mvs identity.MonitoredValues) ([]identity.LogEntry, error) {
-	if err := verifyMonitoredValues(mvs); err != nil {
-		return nil, err
+func MatchedIndices(logEntries []models.LogEntry, mvs identity.MonitoredValues, caRoots string, caIntermediates string) ([]identity.LogEntry, []identity.FailedLogEntry, error) {
+	if err := identity.VerifyMonitoredValues(mvs); err != nil {
+		return nil, nil, err
 	}
 
 	var matchedEntries []identity.LogEntry
+	var failedEntries []identity.FailedLogEntry
 
 	for _, entries := range logEntries {
 		for uuid, entry := range entries {
-			entry := entry
-
 			verifiers, err := extractVerifiers(&entry)
 			if err != nil {
-				return nil, fmt.Errorf("error extracting verifiers for UUID %s at index %d: %w", uuid, *entry.LogIndex, err)
+				failedEntries = append(failedEntries, identity.FailedLogEntry{
+					Index: *entry.LogIndex,
+					UUID:  uuid,
+					Error: fmt.Sprintf("error extracting verifiers: %v", err),
+				})
+				continue
 			}
 			subjects, certs, fps, err := extractAllIdentities(verifiers)
 			if err != nil {
-				return nil, fmt.Errorf("error extracting identities for UUID %s at index %d: %w", uuid, *entry.LogIndex, err)
+				failedEntries = append(failedEntries, identity.FailedLogEntry{
+					Index: *entry.LogIndex,
+					UUID:  uuid,
+					Error: fmt.Sprintf("error extracting identities: %v", err),
+				})
+				continue
+			}
+
+			// Validate that the certificate chain up to a trusted CA
+			if err := identity.ValidateCertificateChain(certs, caRoots, caIntermediates); err != nil {
+				fmt.Fprintf(os.Stderr, "Certificate chain for log entry (UUID: %s, Index: %d) could not be verified against trusted CAs, skipping the entry: %v\n", uuid, *entry.LogIndex, err)
+				continue
 			}
 
 			matchedFingerprintEntries := MatchLogEntryFingerprints(entry, uuid, fps, mvs.Fingerprints)
@@ -152,76 +175,40 @@ func MatchedIndices(logEntries []models.LogEntry, mvs identity.MonitoredValues) 
 
 			matchedSubjectEntries, err := MatchLogEntrySubjects(entry, uuid, subjects, mvs.Subjects)
 			if err != nil {
-				return nil, fmt.Errorf("error matching subjects for UUID %s at index %d: %w", uuid, *entry.LogIndex, err)
+				failedEntries = append(failedEntries, identity.FailedLogEntry{
+					Index: *entry.LogIndex,
+					UUID:  uuid,
+					Error: fmt.Sprintf("error matching subjects: %v", err),
+				})
+				continue
 			}
 			matchedEntries = append(matchedEntries, matchedSubjectEntries...)
 
 			matchedCertIDEntries, err := MatchLogEntryCertificateIdentities(entry, uuid, certs, mvs.CertificateIdentities)
 			if err != nil {
-				return nil, fmt.Errorf("error matching certificate identities for UUID %s at index %d: %w", uuid, *entry.LogIndex, err)
+				failedEntries = append(failedEntries, identity.FailedLogEntry{
+					Index: *entry.LogIndex,
+					UUID:  uuid,
+					Error: fmt.Sprintf("error matching certificate identities: %v", err),
+				})
+				continue
 			}
 			matchedEntries = append(matchedEntries, matchedCertIDEntries...)
 
 			matchedOIDEntries, err := MatchLogEntryOIDs(entry, uuid, certs, mvs.OIDMatchers)
 			if err != nil {
-				return nil, fmt.Errorf("error matching object identifier extensions and values for UUID %s at index %d: %w", uuid, *entry.LogIndex, err)
+				failedEntries = append(failedEntries, identity.FailedLogEntry{
+					Index: *entry.LogIndex,
+					UUID:  uuid,
+					Error: fmt.Sprintf("error matching object identifier extensions and values: %v", err),
+				})
+				continue
 			}
 			matchedEntries = append(matchedEntries, matchedOIDEntries...)
 		}
 	}
 
-	return matchedEntries, nil
-}
-
-// verifyMonitoredValues checks that monitored values are valid
-func verifyMonitoredValues(mvs identity.MonitoredValues) error {
-	if !identity.MonitoredValuesExist(mvs) {
-		return errors.New("no identities provided to monitor")
-	}
-	for _, certID := range mvs.CertificateIdentities {
-		if len(certID.CertSubject) == 0 {
-			return errors.New("certificate subject empty")
-		}
-		// issuers can be empty
-		for _, iss := range certID.Issuers {
-			if len(iss) == 0 {
-				return errors.New("issuer empty")
-			}
-		}
-	}
-	for _, fp := range mvs.Fingerprints {
-		if len(fp) == 0 {
-			return errors.New("fingerprint empty")
-		}
-	}
-	for _, sub := range mvs.Subjects {
-		if len(sub) == 0 {
-			return errors.New("subject empty")
-		}
-	}
-	err := verifyMonitoredOIDs(mvs)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// verifyMonitoredOIDs checks that monitored OID extensions and matching values are valid
-func verifyMonitoredOIDs(mvs identity.MonitoredValues) error {
-	for _, oidMatcher := range mvs.OIDMatchers {
-		if len(oidMatcher.ObjectIdentifier) == 0 {
-			return errors.New("oid extension empty")
-		}
-		if len(oidMatcher.ExtensionValues) == 0 {
-			return errors.New("oid matched values empty")
-		}
-		for _, extensionValue := range oidMatcher.ExtensionValues {
-			if len(extensionValue) == 0 {
-				return errors.New("oid matched value empty")
-			}
-		}
-	}
-	return nil
+	return matchedEntries, failedEntries, nil
 }
 
 // extractVerifiers extracts a set of keys or certificates that can verify an
@@ -271,51 +258,33 @@ func extractAllIdentities(verifiers []pki.PublicKey) ([]string, []*x509.Certific
 }
 
 // GetCheckpointIndex fetches the index of a checkpoint and returns it.
-func GetCheckpointIndex(logInfo *models.LogInfo, checkpoint *util.SignedCheckpoint) int {
+func GetCheckpointIndex(logInfo *models.LogInfo, checkpoint *util.SignedCheckpoint) int64 {
 	// Get log size of inactive shards
-	totalSize := 0
+	totalSize := int64(0)
 	for _, s := range logInfo.InactiveShards {
-		totalSize += int(*s.TreeSize)
+		totalSize += *s.TreeSize
 	}
-	index := int(checkpoint.Size) + totalSize - 1 //nolint: gosec // G115
+	index := int64(checkpoint.Size) + totalSize - 1 //nolint: gosec // G115
 
 	return index
 }
 
-func IdentitySearch(startIndex int, endIndex int, rekorClient *client.Rekor, monitoredValues identity.MonitoredValues, outputIdentitiesFile string, idMetadataFile *string) ([]identity.MonitoredIdentity, error) {
-	entries, err := GetEntriesByIndexRange(context.Background(), rekorClient, startIndex, endIndex)
+func IdentitySearch(ctx context.Context, config *notifications.IdentityMonitorConfiguration, rekorClient *client.Rekor, monitoredValues identity.MonitoredValues) ([]identity.MonitoredIdentity, []identity.FailedLogEntry, error) {
+	entries, err := GetEntriesByIndexRange(ctx, rekorClient, *config.StartIndex, *config.EndIndex)
 	if err != nil {
-		return nil, fmt.Errorf("error getting entries by index range: %v", err)
+		return nil, nil, fmt.Errorf("error getting entries by index range: %v", err)
 	}
-
-	idEntries, err := MatchedIndices(entries, monitoredValues)
+	matchedEntries, failedEntries, err := MatchedIndices(entries, monitoredValues, config.CARootsFile, config.CAIntermediatesFile)
 	if err != nil {
-		return nil, fmt.Errorf("error finding log indices: %v", err)
+		return nil, nil, fmt.Errorf("error matching indices: %v", err)
 	}
 
-	if len(idEntries) > 0 {
-		for _, idEntry := range idEntries {
-			fmt.Fprintf(os.Stderr, "Found %s\n", idEntry.String())
-
-			if err := file.WriteIdentity(outputIdentitiesFile, idEntry); err != nil {
-				return nil, fmt.Errorf("failed to write entry: %v", err)
-			}
-		}
-	}
-
-	// TODO: idMetadataFile currently takes in a string pointer to not cause a regression in the current reusable monitoring workflow.
-	// Once the reusable monitoring workflow is split into a consistency check and identity search, idMetadataFile should always take in a string value.
-	if idMetadataFile != nil {
-		idMetadata := file.IdentityMetadata{
-			LatestIndex: endIndex,
-		}
-		err = file.WriteIdentityMetadata(*idMetadataFile, idMetadata)
-		if err != nil {
-			return nil, fmt.Errorf("failed to write id metadata: %v", err)
-		}
+	err = file.WriteMatchedIdentityEntries(config.OutputIdentitiesFile, config.OutputIdentitiesFormat, matchedEntries, config.IdentityMetadataFile, *config.EndIndex)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	identities := identity.CreateIdentitiesList(monitoredValues)
-	monitoredIdentities := identity.CreateMonitoredIdentities(idEntries, identities)
-	return monitoredIdentities, nil
+	monitoredIdentities := identity.CreateMonitoredIdentities(matchedEntries, identities)
+	return monitoredIdentities, failedEntries, nil
 }

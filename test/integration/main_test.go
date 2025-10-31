@@ -7,6 +7,8 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,7 +43,27 @@ func buildMonitorCmd() error {
 	return buildCmd.Run()
 }
 
+// Serve local TUF repo over HTTP
+func startLocalTUFServer(ctx context.Context) (*httptest.Server, string) {
+	path, err := os.Getwd()
+	if err != nil {
+		log.Println(err)
+	}
+	tufRepoPath := path + "/data/tuf-repo/"
+
+	tufServer := httptest.NewServer(http.FileServer(http.Dir(tufRepoPath)))
+
+	// When ctx is cancelled, shut down the server
+	go func() {
+		<-ctx.Done()
+		tufServer.Close()
+	}()
+	return tufServer, tufRepoPath
+}
+
 func createCheckpointFile(ctx context.Context, t *testing.T, serverUrl string, initialize bool) string {
+	tufServer, tufRepoPath := startLocalTUFServer(ctx)
+	tufRoot := filepath.Join(tufRepoPath, "root.json")
 
 	dataDir := t.TempDir()
 	checkpointFile := filepath.Join(dataDir, "checkpoint_log.txt")
@@ -59,12 +81,14 @@ func createCheckpointFile(ctx context.Context, t *testing.T, serverUrl string, i
 			"--once",
 			"--file", checkpointFile,
 			"--url", serverUrl,
+			"--tuf-repository", tufServer.URL,
+			"--tuf-root-path", tufRoot,
 		)
 		initCmd.Stdout = os.Stdout
 		initCmd.Stderr = os.Stderr
 		err := initCmd.Run()
-		if err == nil {
-			t.Fatal("expected error on initial run due to no start index")
+		if err != nil {
+			t.Fatal("no expected error on initial run")
 		}
 
 		if _, err := os.Stat(checkpointFile); err != nil {
@@ -85,16 +109,19 @@ func findFreePort() (int, error) {
 	return port, nil
 }
 
-// Start the monitor and return the Cmd and logs builder
 func startMonitorCommand(ctx context.Context, checkpointFile string, monitorPort int, serverUrl string, interval string) *exec.Cmd {
+	tufServer, tufRepoPath := startLocalTUFServer(ctx)
+	tufRoot := filepath.Join(tufRepoPath, "root.json")
+
 	return exec.CommandContext(ctx, binaryPath,
 		"--once=false",
 		"--interval", interval,
 		"--file", checkpointFile,
 		"--url", serverUrl,
 		"--monitor-port", fmt.Sprintf("%d", monitorPort),
+		"--tuf-repository", tufServer.URL,
+		"--tuf-root-path", tufRoot,
 	)
-
 }
 
 // Fetch metrics from the monitor with retry

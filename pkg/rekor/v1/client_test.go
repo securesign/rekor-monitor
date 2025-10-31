@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package rekor
+package v1
 
 import (
 	"context"
@@ -25,21 +25,6 @@ import (
 	"github.com/sigstore/rekor/pkg/generated/client"
 	"github.com/sigstore/rekor/pkg/generated/models"
 )
-
-func TestGetPublicKey(t *testing.T) {
-	key := "hellokey"
-	var mClient client.Rekor
-	mClient.Pubkey = &mock.PubkeyClient{
-		PEMPubKey: key,
-	}
-	result, err := GetPublicKey(context.Background(), &mClient)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if string(result) != key {
-		t.Fatalf("expected key value: %v, got: %v", key, result)
-	}
-}
 
 func TestGetLogInfo(t *testing.T) {
 	logInfo := &models.LogInfo{}
@@ -60,12 +45,12 @@ func TestGetLogInfo(t *testing.T) {
 }
 
 func TestGetEntriesByIndexRange(t *testing.T) {
-	maxIndex := 100
+	maxIndex := int64(100)
 	var logEntries []*models.LogEntry
 
 	// the contents of the LogEntryAnon don't matter
 	// test will verify the indices returned by looking at the map keys
-	for i := 0; i <= maxIndex; i++ {
+	for i := int64(0); i <= maxIndex; i++ {
 		lea := models.LogEntryAnon{}
 		data := models.LogEntry{
 			fmt.Sprint(i): lea,
@@ -110,13 +95,25 @@ func TestGetEntriesByIndexRange(t *testing.T) {
 		index++
 	}
 
-	// should return index 42
+	// should return 0 entries for index range where start == end
 	result, err = GetEntriesByIndexRange(context.TODO(), &mClient, 42, 42)
 	if err != nil {
 		t.Fatalf("unexpected error getting entries: %v", err)
 	}
 	if len(result) != 0 {
-		t.Fatalf("expected 0 entries, got %d", len(result))
+		t.Fatalf("expected 0 entry, got %d", len(result))
+	}
+
+	// should return index 43
+	result, err = GetEntriesByIndexRange(context.TODO(), &mClient, 42, 43)
+	if err != nil {
+		t.Fatalf("unexpected error getting entries: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(result))
+	}
+	if !reflect.DeepEqual(result[0], *logEntries[43]) {
+		t.Fatalf("entries should be equal for index 0, log index 43, got %v", result[0])
 	}
 
 	// failure: start greater than end
@@ -128,9 +125,9 @@ func TestGetEntriesByIndexRange(t *testing.T) {
 
 func Test_min(t *testing.T) {
 	tests := []struct {
-		a      int
-		b      int
-		result int
+		a      int64
+		b      int64
+		result int64
 	}{
 		{
 			a:      1,
