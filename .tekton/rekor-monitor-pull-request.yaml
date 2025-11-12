@@ -51,7 +51,7 @@ spec:
       - name: pathInRepo
         value: 'pipelines/docker-build-oci-ta.yaml'
   taskRunTemplate:
-    serviceAccountName: build-pipeline-rekor-monitor
+    serviceAccountName: build-pipeline-rekor-monitor-v1-3
   workspaces:
   - name: git-auth
     secret:
