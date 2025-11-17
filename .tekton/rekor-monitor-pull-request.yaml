@@ -9,7 +9,7 @@ metadata:
     pipelinesascode.tekton.dev/cancel-in-progress: "true"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
     pipelinesascode.tekton.dev/on-cel-expression: event == "pull_request" && target_branch == "main"  &&
-      ( "Dockerfile.rh".pathChanged() || ".tekton/rekor-monitor-pull-request.yaml".pathChanged()|| "go.mod".pathChanged() || "go.sum".pathChanged() || "cmd/rekor_monitor/***".pathChanged() || "cmd/ct_monitor/***".pathChanged() || "pkg/***".pathChanged() || "Makefile".pathChanged()  || "trigger-konflux-builds.txt".pathChanged() )
+      ( "Dockerfile.rekor-monitor.rh".pathChanged() || ".tekton/rekor-monitor-pull-request.yaml".pathChanged()|| "go.mod".pathChanged() || "go.sum".pathChanged() || "cmd/rekor_monitor/***".pathChanged() || "pkg/***".pathChanged() || "Makefile".pathChanged()  || "trigger-konflux-builds.txt".pathChanged() )
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: rekor-monitor
@@ -28,7 +28,7 @@ spec:
   - name: image-expires-after
     value: 5d
   - name: dockerfile
-    value: Dockerfile.rh
+    value: Dockerfile.rekor-monitor.rh
   - name: path-context
     value: .
   - name: build-source-image
