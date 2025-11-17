@@ -23,7 +23,7 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/redhat-user-workloads/rhtas-tenant/ctlog-monitor:{{revision}}
+    value: quay.io/securesign/ctlog-monitor:{{revision}}
   - name: dockerfile
     value: Dockerfile.ctlog-monitor.rh
   pipelineSpec:
