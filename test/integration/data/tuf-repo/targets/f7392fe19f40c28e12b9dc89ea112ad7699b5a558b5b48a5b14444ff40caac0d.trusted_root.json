@@ -5,14 +5,14 @@
       "baseUrl": "https://rekor.sigstore.dev",
       "hashAlgorithm": "SHA2_256",
       "publicKey": {
-        "rawBytes": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEFSHl2cMn87xLeZuOo0q3tGgdj8+yx1SXoyVJNLAXZiYXCdPm7+DULIZXyKSSv6RS2emHrBbWtCrQtBaM3GxlMA==",
+        "rawBytes": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE2G2Y+2tabdTV5BcGiBIx0a9fAFwrkBbmLSGtks4L3qX6yYY0zufBnhC8Ur/iy55GhWP/9A/bY2LhC30M9+RYtw==",
         "keyDetails": "PKIX_ECDSA_P256_SHA_256",
         "validFor": {
-          "start": "2025-10-29T16:26:08Z"
+          "start": "2025-11-17T16:01:22Z"
         }
       },
       "logId": {
-        "keyId": "8YHtB2+ZgiNYlotujPzjqs6ABRe2YFyWDmMSVJ61xf8="
+        "keyId": "wNI9atQGlz+VWfO6LRygH4QUfY/8W4RFwiT5i5WRgB0="
       }
     }
   ]

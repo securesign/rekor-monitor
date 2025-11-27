@@ -3,12 +3,12 @@
     "_type": "targets",
     "spec_version": "1.0.0",
     "version": 3,
-    "expires": "2025-11-19T16:25:12Z",
+    "expires": "2028-08-21T15:59:13Z",
     "targets": {
-      "rekor.pub": {
+      "rekor_with_data.pub": {
         "length": 177,
         "hashes": {
-          "sha256": "2774417ab2c2a14d48985ba9561d11ede443cb54f5235ccf67fc83411736b444"
+          "sha256": "028b09e1614bd917ea9607077f06ef0e9f15535702d56dd1393d6438f99b10b4"
         },
         "custom": {
           "sigstore": {
@@ -21,19 +21,19 @@
       "trusted_root.json": {
         "length": 1106,
         "hashes": {
-          "sha256": "8a46d8d0b504d47a13efbccc03b07baf86dc4ae7c0e5fc6148fdd60ff7f6145e"
+          "sha256": "d01d02a429799487d45759e392ff38731d5ce2fe5a288c30b55d36b711f4ae74"
         }
       },
       "signing_config.v0.2.json": {
         "length": 378,
         "hashes": {
-          "sha256": "3b0e4a93f05f5ff9c20f3b8cf1b2ae296949438a76091ba868e2f0eed0ae9328"
+          "sha256": "f7b258b46f27cd1cffa2b82a65a12b2df0a880191e05b85c4107892451cabc93"
         }
       },
-      "rekor_with_data.pub": {
+      "rekor.pub": {
         "length": 177,
         "hashes": {
-          "sha256": "028b09e1614bd917ea9607077f06ef0e9f15535702d56dd1393d6438f99b10b4"
+          "sha256": "2774417ab2c2a14d48985ba9561d11ede443cb54f5235ccf67fc83411736b444"
         },
         "custom": {
           "sigstore": {
@@ -51,8 +51,8 @@
   },
   "signatures": [
     {
-      "keyid": "99241f6b3723c3ae400fe3a090723018c288396e12b4cecf563753f5e76c85e0",
-      "sig": "6501ecbb754a765ce4468bc3d125c1a18192e0c000f68a5a8c55d9ea6f70dab1a53871cee3bdd32499bcea97e63f9f19d6430a3ced7734912d79ab2c8ab4509abb939a640034ec76a6137da6ab48e5e138e0d72e6100eeac8dee6d6467507c0bb4e178724191720fac70365ec75fb3e150961d0ef63a9b708711d9dfd246cae0562357a09e5bfaaeed216f384a9bf6e7a70cb2dbad35d8b1295eeb9ae25df7f42a4b1915372694599f4a6c7cb9d8e8071a9cae18b2d57e4cedc764024aab9a85326dab15a724e68798304c8df11fdeb89db9d7f2466c29eded448c2c2c89118248cd6dec00033f4987a3e8da5fb89fbc3735ba514a6266102466d723d3f79451"
+      "keyid": "3c0e55e37b94a860e7905e8a53c41d89ff3ae916624e7843abdaefeea2f8d485",
+      "sig": "2a774e2a5f1e0c31b686115983969cd3e875d494a5bd8395aaef90985dad0e62a741a34532099da44e2fe2177b3a19f6ce04e35a32fc029159f1842c62e46ccbbd8d6bfb7ddef2a1584c5ded704be1b2564e0628d151ed579eabc52f6c8b93cf1e807101d9037c921d75148e4904dfad770be5192ec1da92c4fb8bb95372f33e623d47bb5a6b14728bf335a3bd025ff2991452e770315c569befb0786c5901c83c598e875313cf0d69a24f394b2416eeb6145016486e0df91f14156cac52d6cec1c073174ab2f980d91981cd3a4151e47544f2431a98b8badc4cff6d6ad25bd4e71805fd6c16ee805b06a7d42a599c305b6cfe4da20c6ffe18149ee4cc398d36"
     }
   ]
 }

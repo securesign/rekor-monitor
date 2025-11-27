@@ -5,7 +5,7 @@
       "url": "https://rekor.sigstore.dev",
       "majorApiVersion": 1,
       "validFor": {
-        "start": "2025-10-30T08:20:42Z"
+        "start": "2025-11-17T16:01:22Z"
       },
       "operator": "sigstore.dev"
     }

@@ -1,0 +1,29 @@
+# Build stage
+FROM registry.redhat.io/ubi9/go-toolset:9.6@sha256:7b1828de52c3bac600a71b81996bf748776a456181a45e2b329b39702cf6486f AS builder
+
+WORKDIR /app
+
+COPY . .
+
+RUN go mod vendor
+RUN go build -buildvcs=false -o ctlog_monitor ./cmd/ct_monitor
+
+# Final stage
+FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:34880b64c07f28f64d95737f82f891516de9a3b43583f39970f7bf8e4cfa48b7
+
+COPY --from=builder /app/ctlog_monitor /ctlog_monitor
+
+LABEL description="ctlog_monitor is a monitoring tool for the certificate transparency log."
+LABEL io.k8s.description="ctlog_monitor is a monitoring tool for the certificate transparency log."
+LABEL io.k8s.display-name="ctlog-monitor container image for Red Hat Trusted Signer"
+LABEL io.openshift.tags="ctlog-monitor trusted-signer"
+LABEL summary="Provides the ctlog_monitor binary for continuously monitoring the transparency log state of a Ctlog server, performing consistency checks."
+LABEL com.redhat.component="ctlog-monitor"
+LABEL name="rhtas/ctlog-monitor-rhel9"
+
+COPY LICENSE /licenses/LICENSE
+
+USER 65532:65532
+
+#ENTRYPOINT
+ENTRYPOINT ["/ctlog_monitor"]
