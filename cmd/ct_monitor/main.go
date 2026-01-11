@@ -30,6 +30,7 @@ import (
 	"github.com/sigstore/rekor-monitor/pkg/ct"
 	"github.com/sigstore/rekor-monitor/pkg/identity"
 	"github.com/sigstore/rekor-monitor/pkg/notifications"
+	"github.com/sigstore/rekor-monitor/pkg/util"
 	"github.com/sigstore/rekor-monitor/pkg/util/file"
 	"github.com/sigstore/sigstore-go/pkg/root"
 )
@@ -43,10 +44,11 @@ const (
 )
 
 type CTMonitorLogic struct {
-	fulcioClient    *ctclient.LogClient
+	ctlogClient     *ctclient.LogClient
 	flags           *cmd.MonitorFlags
 	config          *notifications.IdentityMonitorConfiguration
 	monitoredValues identity.MonitoredValues
+	trustedRoot     *root.TrustedRoot
 }
 
 func (l CTMonitorLogic) Interval() time.Duration {
@@ -77,7 +79,7 @@ func (l CTMonitorLogic) NotificationContextNew() notifications.NotificationConte
 }
 
 func (l CTMonitorLogic) RunConsistencyCheck(_ context.Context) (cmd.Checkpoint, cmd.LogInfo, error) {
-	prev, cur, err := ct.RunConsistencyCheck(l.fulcioClient, l.flags.LogInfoFile)
+	prev, cur, err := ct.RunConsistencyCheck(l.ctlogClient, l.flags.LogInfoFile, l.trustedRoot)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -109,7 +111,7 @@ func (l CTMonitorLogic) WriteCheckpoint(prev cmd.Checkpoint, cur cmd.LogInfo) er
 
 func (l CTMonitorLogic) GetStartIndex(prev cmd.Checkpoint, _ cmd.LogInfo) *int64 {
 	prevSTH := prev.(*ctgo.SignedTreeHead)
-	checkpointStartIndex := int64(prevSTH.TreeSize) //nolint: gosec // G115, log will never be large enough to overflow
+	checkpointStartIndex := int64(prevSTH.TreeSize) - 1 //nolint: gosec // G115, log will never be large enough to overflow
 	return &checkpointStartIndex
 }
 
@@ -120,7 +122,7 @@ func (l CTMonitorLogic) GetEndIndex(cur cmd.LogInfo) *int64 {
 }
 
 func (l CTMonitorLogic) IdentitySearch(ctx context.Context, config *notifications.IdentityMonitorConfiguration, monitoredValues identity.MonitoredValues) ([]identity.MonitoredIdentity, []identity.FailedLogEntry, error) {
-	return ct.IdentitySearch(ctx, l.fulcioClient, config, monitoredValues)
+	return ct.IdentitySearch(ctx, l.ctlogClient, config, monitoredValues)
 }
 
 // This main function performs a periodic identity search.
@@ -152,11 +154,24 @@ func mainWithReturn() int {
 	}
 	defer cleanupTrustedCAs()
 
-	fulcioClient, err := ctclient.New(flags.ServerURL, http.DefaultClient, jsonclient.Options{
+	httpClient := http.DefaultClient
+	if flags.HTTPSCertChainFile != "" {
+		tlsConfig, err := util.TLSConfigForCA(flags.HTTPSCertChainFile)
+		if err != nil {
+			log.Printf("error getting TLS config: %v", err)
+			return 1
+		}
+		httpClient = &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: tlsConfig,
+			},
+		}
+	}
+	ctlogClient, err := ctclient.New(flags.ServerURL, httpClient, jsonclient.Options{
 		UserAgent: flags.UserAgent,
 	})
 	if err != nil {
-		log.Printf("getting Fulcio client: %v", err)
+		log.Printf("getting CT client: %v", err)
 		return 1
 	}
 
@@ -173,10 +188,11 @@ func mainWithReturn() int {
 	cmd.PrintMonitoredValues(monitoredValues)
 
 	ctMonitorLogic := CTMonitorLogic{
-		fulcioClient:    fulcioClient,
+		ctlogClient:     ctlogClient,
 		flags:           flags,
 		config:          config,
 		monitoredValues: monitoredValues,
+		trustedRoot:     trustedRoot,
 	}
 	cmd.MonitorLoop(ctMonitorLogic)
 	return 0
