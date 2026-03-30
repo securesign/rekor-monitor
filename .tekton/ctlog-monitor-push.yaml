@@ -40,7 +40,7 @@ spec:
   - name: go_unit_test
     value: true
   - name: go_base_image
-    value: registry.redhat.io/ubi9/go-toolset@sha256:38d909b4f0b5244bc6dffab499fa3324e2ce878dcc79e3ee85a200655cbba736
+    value: registry.redhat.io/ubi9/go-toolset@sha256:df073e37d0cfe6c83df9fd4891b14252f3822cb511000c48f32c632f0d24920f
   - name: fips-check
     value: "true"
   pipelineRef:
