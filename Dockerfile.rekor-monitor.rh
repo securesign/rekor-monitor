@@ -1,5 +1,5 @@
 # Build stage
-FROM registry.redhat.io/ubi9/go-toolset@sha256:a05a1c82b3ce23864a831084ff21a907128f4707ca3f455ba99717c0c2c4d6c1 AS builder
+FROM registry.redhat.io/ubi9/go-toolset@sha256:bee030343cf58a69e835f4c65380788d15f8efc6cc69c33e1414cefcb7098902 AS builder
 
 WORKDIR /app
 
