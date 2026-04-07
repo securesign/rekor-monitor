@@ -39,7 +39,7 @@ spec:
   - name: go_unit_test
     value: true
   - name: go_base_image
-    value: registry.redhat.io/ubi9/go-toolset:1.24@sha256:6fd64cd7f38a9b87440f963b6c04953d04de65c35b9672dbd7f1805b0ae20d09
+    value: registry.redhat.io/ubi9/go-toolset:9.7-1774618347@sha256:a05a1c82b3ce23864a831084ff21a907128f4707ca3f455ba99717c0c2c4d6c1
   pipelineRef:
     resolver: git
     params:
