@@ -8,12 +8,12 @@ metadata:
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
     pipelinesascode.tekton.dev/cancel-in-progress: "false"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
-    pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch == "main"  &&
+    pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch == "release-1.4"  &&
       ( "Dockerfile.ctlog-monitor.rh".pathChanged() || ".tekton/ctlog-monitor-push.yaml".pathChanged()|| "go.mod".pathChanged() || "go.sum".pathChanged() || "cmd/ct_monitor/***".pathChanged() || "pkg/***".pathChanged() || "Makefile".pathChanged() || "trigger-konflux-builds.txt".pathChanged() )
   creationTimestamp: null
   labels:
-    appstudio.openshift.io/application: rekor-monitor
-    appstudio.openshift.io/component: ctlog-monitor
+    appstudio.openshift.io/application: rekor-monitor-v1-4
+    appstudio.openshift.io/component: ctlog-monitor-v1-4
     pipelines.appstudio.openshift.io/type: build
   name: ctlog-monitor-on-push
   namespace: rhtas-tenant
@@ -53,7 +53,7 @@ spec:
       - name: pathInRepo
         value: 'pipelines/docker-build-oci-ta.yaml'
   taskRunTemplate:
-    serviceAccountName: build-pipeline-ctlog-monitor
+    serviceAccountName: build-pipeline-ctlog-monitor-v1-4
   workspaces:
   - name: git-auth
     secret:
