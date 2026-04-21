@@ -1,5 +1,5 @@
 # Build stage
-FROM registry.redhat.io/ubi9/go-toolset:9.7-1776213685@sha256:9e4500f5035d8402ad6d4e6b42bae025f82c3dff7a1f6b6f9d85209fba27fb8b AS builder
+FROM registry.redhat.io/ubi9/go-toolset:9.7-1776763740@sha256:21c32020867e17a72931dd04ec72e16193ed1549352cfb9dc72c0a6e35d4fa7b AS builder
 
 WORKDIR /app
 
@@ -9,7 +9,7 @@ RUN go mod vendor
 RUN go build -buildvcs=false -o rekor_monitor ./cmd/rekor_monitor
 
 # Final stage
-FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:33eae2776b5c5a44ecb1668eb5958ae6634b10c279727fa5030a394e07a7eb9e
+FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:8e5f23f039511fbb19fcd95b7caa0bbfbf1780ed14d300c3539df6f1040e285d
 
 COPY --from=builder /app/rekor_monitor /rekor_monitor
 
