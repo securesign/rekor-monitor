@@ -16,7 +16,7 @@ metadata:
     appstudio.openshift.io/application: rekor-monitor-v1-4
     appstudio.openshift.io/component: rekor-monitor-v1-4
     pipelines.appstudio.openshift.io/type: build
-  name: rekor-monitor-on-push
+  name: rekor-monitor-v1-4-on-push
   namespace: rhtas-tenant
 spec:
   params:
