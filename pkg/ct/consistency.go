@@ -25,6 +25,7 @@ import (
 
 	ct "github.com/google/certificate-transparency-go"
 	ctclient "github.com/google/certificate-transparency-go/client"
+	rmutil "github.com/sigstore/rekor-monitor/pkg/util"
 	"github.com/sigstore/rekor-monitor/pkg/util/file"
 	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/transparency-dev/merkle/proof"
@@ -47,6 +48,13 @@ func getCTLogVerifier(serverURL string, trustedRoot root.TrustedMaterial) (*ct.S
 	}
 
 	if log, ok := ctLogs[keyID]; ok {
+		// RHTAS FIPS - DO NOT REMOVE
+		// ========================================
+		if err := rmutil.ValidatePublicKey(log.PublicKey); err != nil {
+			return nil, err
+		}
+		// ========================================
+
 		verifier, err := ct.NewSignatureVerifier(log.PublicKey)
 		if err != nil {
 			return nil, err

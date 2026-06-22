@@ -1,15 +1,17 @@
 # Build stage
-FROM registry.redhat.io/ubi9/go-toolset@sha256:a05a1c82b3ce23864a831084ff21a907128f4707ca3f455ba99717c0c2c4d6c1 AS builder
+FROM registry.redhat.io/ubi9/go-toolset:9.8@sha256:355b23fe885cf565c9313a7e98db742df0aec21456244e808942c56489594251 AS builder
 
+USER root
 WORKDIR /app
 
 COPY . .
 
-ENV CGO_ENABLED=1 \
-    GOEXPERIMENT=strictfipsruntime
+ENV CGO_ENABLED=0
+ENV GOFIPS140=v1.0.0
 
+RUN go mod edit -godebug=fips140=auto
 RUN go mod vendor
-RUN go build -buildvcs=false -o rekor_monitor ./cmd/rekor_monitor
+RUN go build -buildvcs=false -tags=no_openssl -o rekor_monitor ./cmd/rekor_monitor
 
 # Final stage
 FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:f5346fbb587b72b5376e66272935d22c62af78be2e8ea1dcf3e9e46865a9a2ee

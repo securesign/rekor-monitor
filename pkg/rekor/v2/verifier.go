@@ -26,6 +26,7 @@ import (
 	"net/url"
 	"os"
 
+	rmutil "github.com/sigstore/rekor-monitor/pkg/util"
 	"github.com/sigstore/rekor-monitor/pkg/util/file"
 	"github.com/sigstore/rekor-tiles/v2/pkg/client"
 	"github.com/sigstore/sigstore-go/pkg/root"
@@ -109,6 +110,13 @@ func GetLogVerifier(ctx context.Context, baseURL *url.URL, trustedRoot root.Trus
 	if matchingLogInstance == nil {
 		return nil, fmt.Errorf("couldn't find matching log instance with baseURL %v", baseURL)
 	}
+
+	// RHTAS FIPS - DO NOT REMOVE
+	// ========================================
+	if err := rmutil.ValidatePublicKey(matchingLogInstance.PublicKey); err != nil {
+		return nil, err
+	}
+	// ========================================
 
 	verifier, err := signature.LoadVerifier(matchingLogInstance.PublicKey, matchingLogInstance.HashFunc)
 	if err != nil {

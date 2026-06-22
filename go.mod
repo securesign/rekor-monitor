@@ -1,6 +1,6 @@
 module github.com/sigstore/rekor-monitor
 
-go 1.25.7
+go 1.26.0
 
 require (
 	github.com/go-openapi/runtime v0.29.3
