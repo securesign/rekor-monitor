@@ -25,6 +25,7 @@ import (
 	"github.com/sigstore/rekor-monitor/pkg/fulcio/extensions"
 	"github.com/sigstore/rekor-monitor/pkg/identity"
 	"github.com/sigstore/rekor-monitor/pkg/notifications"
+	rmutil "github.com/sigstore/rekor-monitor/pkg/util"
 	"github.com/sigstore/rekor-monitor/pkg/util/file"
 	"github.com/sigstore/rekor-tiles/v2/pkg/generated/protobuf"
 	"github.com/sigstore/rekor-tiles/v2/pkg/verifier"
@@ -165,6 +166,12 @@ func extractAllIdentities(verifiers []verifier.Verifier) ([]string, []*x509.Cert
 	var fps []string
 
 	for _, v := range verifiers {
+		// RHTAS FIPS - DO NOT REMOVE
+		// ========================================
+		if err := rmutil.ValidatePublicKey(v.PublicKey()); err != nil {
+			return nil, nil, nil, err
+		}
+		// ========================================
 		identity, err := v.Identity()
 		if err != nil {
 			return nil, nil, nil, err
