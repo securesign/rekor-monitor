@@ -17,6 +17,7 @@ package v1
 import (
 	"bytes"
 	"context"
+	"crypto/fips140"
 	"crypto/x509"
 	"encoding/base64"
 	"fmt"
@@ -27,6 +28,7 @@ import (
 	"github.com/sigstore/rekor-monitor/pkg/fulcio/extensions"
 	"github.com/sigstore/rekor-monitor/pkg/identity"
 	"github.com/sigstore/rekor-monitor/pkg/notifications"
+	rmutil "github.com/sigstore/rekor-monitor/pkg/util"
 	"github.com/sigstore/rekor-monitor/pkg/util/file"
 	"github.com/sigstore/rekor/pkg/generated/client"
 	"github.com/sigstore/rekor/pkg/generated/models"
@@ -48,6 +50,23 @@ import (
 	_ "github.com/sigstore/rekor/pkg/types/rpm/v0.0.1"
 	_ "github.com/sigstore/rekor/pkg/types/tuf/v0.0.1"
 )
+
+// RHTAS FIPS - DO NOT REMOVE
+// ========================================
+func init() {
+	if !fips140.Enabled() {
+		return
+	}
+	// Deregister entry types that depend on non-FIPS-approved crypto.
+	// helm and rpm entries use PGP (golang.org/x/crypto/openpgp) in their
+	// Verifiers() methods. Their init() functions have already run and
+	// registered them in TypeMap; we remove them here so they cannot be
+	// unmarshalled.
+	types.TypeMap.Delete("helm")
+	types.TypeMap.Delete("rpm")
+}
+
+// ========================================
 
 func MatchLogEntryFingerprints(logEntryAnon models.LogEntryAnon, uuid string, entryFingerprints []string, monitoredFingerprints []string) []identity.LogEntry {
 	matchedEntries := []identity.LogEntry{}
@@ -211,6 +230,64 @@ func MatchedIndices(logEntries []models.LogEntry, mvs identity.MonitoredValues, 
 	return matchedEntries, failedEntries, nil
 }
 
+// RHTAS FIPS - DO NOT REMOVE
+// ========================================
+
+var fipsBlockedKinds = map[string]bool{
+	"helm": true,
+	"rpm":  true,
+}
+
+var fipsBlockedRekordFormats = map[string]bool{
+	"pgp":      true,
+	"ssh":      true,
+	"minisign": true,
+}
+
+// validateEntryFIPSCompliance checks whether a proposed log entry can be
+// processed under FIPS mode. Returns nil when FIPS is disabled or the entry
+// uses only FIPS-approved algorithms.
+func validateEntryFIPSCompliance(pe models.ProposedEntry) error {
+	if !fips140.Enabled() {
+		return nil
+	}
+
+	kind := pe.Kind()
+
+	if fipsBlockedKinds[kind] {
+		return fmt.Errorf("entry kind %q is not supported in FIPS mode", kind)
+	}
+
+	if kind == "rekord" {
+		if rekord, ok := pe.(*models.Rekord); ok {
+			format := extractRekordFormat(rekord)
+			if format == "" {
+				return fmt.Errorf("rekord entry with unreadable signature format is not supported in FIPS mode")
+			}
+			if fipsBlockedRekordFormats[format] {
+				return fmt.Errorf("rekord signature format %q is not supported in FIPS mode", format)
+			}
+		}
+	}
+
+	return nil
+}
+
+func extractRekordFormat(rekord *models.Rekord) string {
+	spec, ok := rekord.Spec.(map[string]any)
+	if !ok {
+		return ""
+	}
+	sig, ok := spec["signature"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	format, _ := sig["format"].(string)
+	return format
+}
+
+// ========================================
+
 // extractVerifiers extracts a set of keys or certificates that can verify an
 // artifact signature from a Rekor entry
 func extractVerifiers(e *models.LogEntryAnon) ([]pki.PublicKey, error) {
@@ -223,6 +300,13 @@ func extractVerifiers(e *models.LogEntryAnon) ([]pki.PublicKey, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// RHTAS FIPS - DO NOT REMOVE
+	// ========================================
+	if err := validateEntryFIPSCompliance(pe); err != nil {
+		return nil, err
+	}
+	// ========================================
 
 	eimpl, err := types.UnmarshalEntry(pe)
 	if err != nil {
@@ -248,10 +332,21 @@ func extractAllIdentities(verifiers []pki.PublicKey) ([]string, []*x509.Certific
 		}
 		// append all certificate and key fingerprints
 		for _, i := range ids {
-			fps = append(fps, i.Fingerprint)
+			// RHTAS FIPS - DO NOT REMOVE
+			// ========================================
 			if cert, ok := i.Crypto.(*x509.Certificate); ok {
+				if err := rmutil.ValidatePublicKey(cert.PublicKey); err != nil {
+					return nil, nil, nil, err
+				}
+				fps = append(fps, i.Fingerprint)
 				certificates = append(certificates, cert)
+			} else {
+				if err := rmutil.ValidatePublicKey(i.Crypto); err != nil {
+					return nil, nil, nil, err
+				}
+				fps = append(fps, i.Fingerprint)
 			}
+			// ========================================
 		}
 	}
 	return subjects, certificates, fps, nil
