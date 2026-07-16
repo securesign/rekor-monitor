@@ -20,7 +20,6 @@ import (
 	"crypto/ed25519"
 	"crypto/fips140"
 	"crypto/rsa"
-	"errors"
 	"fmt"
 )
 
@@ -29,7 +28,7 @@ import (
 
 // ValidatePublicKey checks whether a crypto.PublicKey uses a FIPS-approved
 // algorithm. Returns nil when FIPS mode is disabled or when the key is approved.
-// Approved: RSA (>= 2048-bit), ECDSA. Rejected: Ed25519, RSA < 2048-bit, all others.
+// Approved: RSA (>= 2048-bit), ECDSA, Ed25519. Rejected: RSA < 2048-bit, all others.
 func ValidatePublicKey(pub crypto.PublicKey) error {
 	if !fips140.Enabled() {
 		return nil
@@ -43,7 +42,7 @@ func ValidatePublicKey(pub crypto.PublicKey) error {
 	case *ecdsa.PublicKey:
 		return nil
 	case ed25519.PublicKey:
-		return errors.New("ed25519 is not supported in FIPS mode")
+		return nil
 	default:
 		return fmt.Errorf("unsupported key type %T in FIPS mode", pub)
 	}
