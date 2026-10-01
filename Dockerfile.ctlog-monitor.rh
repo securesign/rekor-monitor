@@ -12,7 +12,7 @@ RUN go mod vendor
 RUN go build -buildvcs=false -o ctlog_monitor ./cmd/ct_monitor
 
 # Final stage
-FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:bc2502169d857732c4ba778f69ed4fa2d25c9ef054a9f7839ac8ce65aedd6574
+FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:eba570d04193d1523a8576b1c0ff00e681c9edb1a41d4742559b6e3ff457601e
 
 COPY --from=builder /app/ctlog_monitor /ctlog_monitor
 
