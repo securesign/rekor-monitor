@@ -2,7 +2,7 @@ name: Test Rekor Integration
 
 on:
   push:
-    branches: [ main ]
+    branches: [ release-1.5 ]
   pull_request:
 
 jobs:
