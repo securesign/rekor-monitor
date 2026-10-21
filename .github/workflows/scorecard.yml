@@ -23,7 +23,7 @@ on:
     # Weekly on Saturdays.
     - cron: '30 1 * * 6'
   push:
-    branches: [ main ]
+    branches: [ release-1.5 ]
 
 # Declare default permissions as read only.
 permissions: read-all
