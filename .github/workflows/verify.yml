@@ -15,7 +15,26 @@
 
 name: Verify
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - main
+      - 'release-*'
+    paths-ignore:
+      - 'Dockerfile.rekor-monitor.rh'
+      - 'Dockerfile.ctlog-monitor.rh'
+      - '.tekton/**'
+      - '**/*.md'
+      - 'LICENSE'
+      - 'renovate.json'
+  pull_request:
+    paths-ignore:
+      - 'Dockerfile.rekor-monitor.rh'
+      - 'Dockerfile.ctlog-monitor.rh'
+      - '.tekton/**'
+      - '**/*.md'
+      - 'LICENSE'
+      - 'renovate.json'
 
 permissions:
   contents: read
