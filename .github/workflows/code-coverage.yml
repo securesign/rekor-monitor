@@ -17,9 +17,24 @@ name: Code Coverage
 
 on:
   push:
-    branches: [ release-1.5 ]
+    branches:
+      - main
+      - 'release-*'
+    paths-ignore:
+      - 'Dockerfile.rekor-monitor.rh'
+      - 'Dockerfile.ctlog-monitor.rh'
+      - '.tekton/**'
+      - '**/*.md'
+      - 'LICENSE'
+      - 'renovate.json'
   pull_request:
-    branches: [ release-1.5 ]
+    paths-ignore:
+      - 'Dockerfile.rekor-monitor.rh'
+      - 'Dockerfile.ctlog-monitor.rh'
+      - '.tekton/**'
+      - '**/*.md'
+      - 'LICENSE'
+      - 'renovate.json'
 
 permissions:
   contents: read
