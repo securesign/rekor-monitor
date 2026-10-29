@@ -1,0 +1,32 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "github>securesign/renovate-config//org-inherited-config.json"
+  ],
+  "enabledManagers": ["dockerfile", "gomod", "tekton", "custom.regex"],
+  "ignorePaths": [
+    "Dockerfile{,}",
+    "docker-compose.yaml",
+    ".github/workflows/**"
+  ],
+  "packageRules": [
+    {
+      "description": "Disable GitHub Actions updates",
+      "matchManagers": ["github-actions"],
+      "enabled": false
+    },
+    {
+      "description": "Disable docker-compose updates",
+      "matchManagers": ["docker-compose"],
+      "enabled": false
+    },
+    {
+      "description": "Disable updates for upstream-only Docker images",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": [
+        "golang"
+      ],
+      "enabled": false
+    }
+  ]
+}
