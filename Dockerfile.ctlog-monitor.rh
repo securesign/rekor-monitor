@@ -1,5 +1,5 @@
 # Build stage
-FROM registry.redhat.io/ubi9/go-toolset@sha256:bf0d022852b66d868da1a241de70d381c65aa5541e306c4bf6ce27a74af85c32 AS builder
+FROM registry.redhat.io/ubi9/go-toolset@sha256:5ee38c1f5fc2dfa5c5257928912cc26857f4186c07d836271a2d748dc79b083a AS builder
 
 WORKDIR /app
 
@@ -12,7 +12,7 @@ RUN go mod vendor
 RUN go build -buildvcs=false -o ctlog_monitor ./cmd/ct_monitor
 
 # Final stage
-FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:5c9e61f364f90de936dae884069044e372a1441288203d83f40783d633244b2f
+FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:312b02a8f8ad5bdd219849c3e854cc5191c92fb7b8ce9b30fe2daed2de849094
 
 COPY --from=builder /app/ctlog_monitor /ctlog_monitor
 
