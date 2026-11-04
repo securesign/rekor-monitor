@@ -15,6 +15,7 @@
 package mock
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -46,12 +47,24 @@ func (m *EntriesClient) CreateLogEntry(_ *entries.CreateLogEntryParams, _ ...ent
 	}, nil
 }
 
+func (m *EntriesClient) CreateLogEntryContext(_ context.Context, params *entries.CreateLogEntryParams, opts ...entries.ClientOption) (*entries.CreateLogEntryCreated, error) {
+	return m.CreateLogEntry(params, opts...)
+}
+
 func (m *EntriesClient) GetLogEntryByIndex(_ *entries.GetLogEntryByIndexParams, _ ...entries.ClientOption) (*entries.GetLogEntryByIndexOK, error) {
 	return nil, errors.New("not implemented")
 }
 
+func (m *EntriesClient) GetLogEntryByIndexContext(_ context.Context, params *entries.GetLogEntryByIndexParams, opts ...entries.ClientOption) (*entries.GetLogEntryByIndexOK, error) {
+	return m.GetLogEntryByIndex(params, opts...)
+}
+
 func (m *EntriesClient) GetLogEntryByUUID(_ *entries.GetLogEntryByUUIDParams, _ ...entries.ClientOption) (*entries.GetLogEntryByUUIDOK, error) {
 	return nil, errors.New("not implemented")
+}
+
+func (m *EntriesClient) GetLogEntryByUUIDContext(_ context.Context, params *entries.GetLogEntryByUUIDParams, opts ...entries.ClientOption) (*entries.GetLogEntryByUUIDOK, error) {
+	return m.GetLogEntryByUUID(params, opts...)
 }
 
 func (m *EntriesClient) SearchLogQuery(params *entries.SearchLogQueryParams, _ ...entries.ClientOption) (*entries.SearchLogQueryOK, error) {
@@ -69,7 +82,11 @@ func (m *EntriesClient) SearchLogQuery(params *entries.SearchLogQueryParams, _ .
 	}, nil
 }
 
-func (m *EntriesClient) SetTransport(_ runtime.ClientTransport) {}
+func (m *EntriesClient) SearchLogQueryContext(_ context.Context, params *entries.SearchLogQueryParams, opts ...entries.ClientOption) (*entries.SearchLogQueryOK, error) {
+	return m.SearchLogQuery(params, opts...)
+}
+
+func (m *EntriesClient) SetTransport(_ runtime.ContextualTransport) {}
 
 // TlogClient is a client that implements tlog.ClientService for Rekor
 // To use:
@@ -90,6 +107,10 @@ func (m *TlogClient) GetLogInfo(_ *tlog.GetLogInfoParams, _ ...tlog.ClientOption
 	}, nil
 }
 
+func (m *TlogClient) GetLogInfoContext(_ context.Context, params *tlog.GetLogInfoParams, opts ...tlog.ClientOption) (*tlog.GetLogInfoOK, error) {
+	return m.GetLogInfo(params, opts...)
+}
+
 func (m *TlogClient) GetLogProof(_ *tlog.GetLogProofParams, _ ...tlog.ClientOption) (*tlog.GetLogProofOK, error) {
 	if m.Error != nil {
 		return nil, m.Error
@@ -99,7 +120,11 @@ func (m *TlogClient) GetLogProof(_ *tlog.GetLogProofParams, _ ...tlog.ClientOpti
 	}, nil
 }
 
-func (m *TlogClient) SetTransport(_ runtime.ClientTransport) {}
+func (m *TlogClient) GetLogProofContext(_ context.Context, params *tlog.GetLogProofParams, opts ...tlog.ClientOption) (*tlog.GetLogProofOK, error) {
+	return m.GetLogProof(params, opts...)
+}
+
+func (m *TlogClient) SetTransport(_ runtime.ContextualTransport) {}
 
 // PubkeyClient is a client that implements pubkey.ClientService for Rekor
 // To use:
@@ -115,7 +140,11 @@ func (m *PubkeyClient) GetPublicKey(_ *pubkey.GetPublicKeyParams, _ ...pubkey.Cl
 	}, nil
 }
 
-func (m *PubkeyClient) SetTransport(_ runtime.ClientTransport) {}
+func (m *PubkeyClient) GetPublicKeyContext(_ context.Context, params *pubkey.GetPublicKeyParams, opts ...pubkey.ClientOption) (*pubkey.GetPublicKeyOK, error) {
+	return m.GetPublicKey(params, opts...)
+}
+
+func (m *PubkeyClient) SetTransport(_ runtime.ContextualTransport) {}
 
 type TrustedRoot struct {
 	ctLogs    map[string]*root.TransparencyLog
