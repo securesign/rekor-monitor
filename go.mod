@@ -21,7 +21,7 @@ require (
 	github.com/transparency-dev/merkle v0.0.2
 	github.com/transparency-dev/tessera v1.0.2
 	github.com/wneessen/go-mail v0.7.2
-	golang.org/x/mod v0.38.0
+	golang.org/x/mod v0.40.0
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v2 v2.4.0
 	sigs.k8s.io/release-utils v0.12.4
