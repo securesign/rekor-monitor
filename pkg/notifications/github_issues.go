@@ -18,7 +18,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/google/go-github/v65/github"
+	"github.com/google/go-github/v93/github"
 )
 
 // GitHubIssueInput extends the NotificationPlatform interface to support found identity
