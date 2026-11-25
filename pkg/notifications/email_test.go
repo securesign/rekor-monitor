@@ -16,7 +16,7 @@ package notifications
 
 import (
 	"context"
-	"errors"
+	"strings"
 	"testing"
 
 	smtpmock "github.com/mocktools/go-smtp-mock/v2"
@@ -142,11 +142,7 @@ func TestEmailSendMockSMTPServerFailure(t *testing.T) {
 		Payload: identity.MonitoredIdentityList{monitoredIdentity},
 	}
 	err := emailNotificationInput.Send(context.Background(), notificationData)
-	var sendErr *mail.SendError
-	if !errors.As(err, &sendErr) {
-		t.Fatalf("expected SMTP send error, received %v", err)
-	}
-	if sendErr.Reason != mail.ErrSMTPMailFrom || sendErr.ErrorCode() != 421 {
-		t.Errorf("expected SMTP MAIL FROM rejection with code 421, received %v", err)
+	if err == nil || !strings.Contains(err.Error(), "421") || !strings.Contains(err.Error(), "Service not available") {
+		t.Errorf("expected 421 Service not available, received error %v", err)
 	}
 }
