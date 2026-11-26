@@ -32,7 +32,7 @@ import (
 	"github.com/sigstore/rekor-monitor/pkg/server"
 	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/sigstore/sigstore-go/pkg/tuf"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 	"sigs.k8s.io/release-utils/version"
 )
 
