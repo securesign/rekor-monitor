@@ -17,7 +17,7 @@ package notifications
 import (
 	"context"
 
-	"github.com/mailgun/mailgun-go/v4"
+	"github.com/mailgun/mailgun-go/v5"
 )
 
 // MailgunNotificationInput extends the NotificationPlatform interface to support
