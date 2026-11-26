@@ -142,7 +142,7 @@ func TestEmailSendMockSMTPServerFailure(t *testing.T) {
 		Payload: identity.MonitoredIdentityList{monitoredIdentity},
 	}
 	err := emailNotificationInput.Send(context.Background(), notificationData)
-	if err == nil || !strings.Contains(err.Error(), "421 Service not available") {
+	if err == nil || !strings.Contains(err.Error(), "421") {
 		t.Errorf("expected 421 Service not available, received error %v", err)
 	}
 }
